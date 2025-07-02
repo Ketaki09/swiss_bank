@@ -1,0 +1,3 @@
+[submodule "SwissBank-Website"]
+	path = SwissBank-Website
+	url = https://github.com/chanakyakanakam/SwissBank-Website.git

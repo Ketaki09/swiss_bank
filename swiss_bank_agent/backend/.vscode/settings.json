@@ -1,0 +1,11 @@
+{
+    "python.linting.pylintArgs": [
+        "--disable=no-member,import-error"
+    ],
+    "python.linting.flake8Args": [
+        "--ignore=E501,W503"
+    ]
+}
+
+
+
