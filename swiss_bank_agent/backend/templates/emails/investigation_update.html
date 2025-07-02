@@ -1,0 +1,41 @@
+{% extends "base_template.html" %}
+
+{% block title %}Investigation Update - Swiss Bank{% endblock %}
+{% block header_title %}Investigation Update{% endblock %}
+
+{% block content %}
+<p>Dear {{ customer_name }},</p>
+
+<p>We have an update regarding your complaint investigation.</p>
+
+<div class="info-box">
+    <h3>Complaint Status Update</h3>
+    <p><strong>Complaint ID:</strong> {{ complaint_id }}</p>
+    <p><strong>Current Status:</strong> {{ status }}</p>
+    <p><strong>Last Updated:</strong> {{ update_date }}</p>
+</div>
+
+<h3>Investigation Progress</h3>
+<p>{{ investigation_summary }}</p>
+
+{% if next_steps %}
+<h3>Next Steps</h3>
+<div class="action-list">
+    <ul>
+    {% for step in next_steps %}
+        <li>{{ step }}</li>
+    {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{% if estimated_completion %}
+<p><strong>Estimated Completion:</strong> {{ estimated_completion }}</p>
+{% endif %}
+
+<p>We appreciate your patience as we work to resolve your concern thoroughly and fairly.</p>
+
+<p>Best regards,<br>
+Swiss Bank Investigation Team</p>
+{% endblock %}
+

@@ -1,0 +1,30 @@
+{% extends "base_template.html" %}
+
+{% block title %}Internal Investigation Report - Swiss Bank{% endblock %}
+{% block header_title %}Internal Investigation Report{% endblock %}
+
+{% block content %}
+<h3>New Investigation Report Available</h3>
+
+<div class="info-box">
+    <p><strong>Complaint ID:</strong> {{ complaint_id }}</p>
+    <p><strong>Priority Level:</strong> {{ priority_level }}</p>
+    <p><strong>Root Cause:</strong> {{ root_cause_analysis }}</p>
+</div>
+
+<h3>Recommended Actions:</h3>
+<div class="action-list">
+    <ul>
+    {% for action in recommended_actions %}
+        <li>{{ action }}</li>
+    {% endfor %}
+    </ul>
+</div>
+
+<p><strong>Estimated Resolution Time:</strong> {{ estimated_resolution_time }}</p>
+
+<p>Please review the full report in the dashboard.</p>
+
+<p><em>This is an automated notification from the Complaint Management System.</em></p>
+{% endblock %}
+

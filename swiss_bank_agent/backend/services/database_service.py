@@ -23,7 +23,7 @@ class DatabaseService:
             "MONGODB_URL", 
             "mongodb://localhost:27017/"
         )
-        self.database_name = os.getenv("DB_NAME", "swiss_bank")
+        self.database_name = os.getenv("DB_NAME", "wells_fargo_complaints")
 
     async def connect(self):
         """Initialize database connection"""
@@ -279,3 +279,7 @@ class DatabaseService:
             "severity_breakdown": {item["_id"]: item["count"] for item in severity_counts},
             "recent_complaints": recent_complaints
         }
+    
+
+
+    

@@ -1,0 +1,47 @@
+[
+    {
+        "customer_id":"d8b7741c-955e-4d3d-a8a8-2904cb0b073a",
+        "name":"Sara Ray",
+        "email":"cdean@example.com",
+        "phone":"001-474-914-9627",
+        "account_number":"RHWN55566565976857",
+        "account_type":"checking",
+        "registration_date":"2022-05-29",
+        "previous_complaints":0,
+        "credit_score":810,
+        "monthly_balance":5353.45,
+        "location":"East Ashley",
+        "age":33,
+        "occupation":"Producer, radio"
+    },
+    {
+        "customer_id":"3ad22b7e-c178-416c-8495-8923bf733346",
+        "name":"Amber Miller",
+        "email":"james33@example.net",
+        "phone":"847-859-5324x16895",
+        "account_number":"DSQE72140855956643",
+        "account_type":"savings",
+        "registration_date":"2019-10-08",
+        "previous_complaints":5,
+        "credit_score":707,
+        "monthly_balance":22417.81,
+        "location":"Port Tracy",
+        "age":68,
+        "occupation":"Chartered accountant"
+    },
+    {
+        "customer_id":"d4d1ad8c-4ab8-4df3-9b4f-726f10b6d290",
+        "name":"Danny Lucero",
+        "email":"escobarpatricia@example.org",
+        "phone":"262-391-3984x718",
+        "account_number":"WLYA78205922377764",
+        "account_type":"premium",
+        "registration_date":"2021-07-30",
+        "previous_complaints":2,
+        "credit_score":676,
+        "monthly_balance":7916.21,
+        "location":"Lake Amyside",
+        "age":65,
+        "occupation":"Geneticist, molecular"
+    }
+]

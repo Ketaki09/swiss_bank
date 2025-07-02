@@ -1,0 +1,39 @@
+{% extends "base_template.html" %}
+
+{% block title %}Complaint Resolution - Swiss Bank{% endblock %}
+{% block header_title %}Complaint Resolution{% endblock %}
+
+{% block content %}
+<p>Dear {{ customer_name }},</p>
+
+<p>We are pleased to inform you that we have completed our investigation of your complaint and have taken action to resolve your concern.</p>
+
+<div class="info-box">
+    <h3>Resolution Summary</h3>
+    <p><strong>Complaint ID:</strong> {{ complaint_id }}</p>
+    <p><strong>Resolution Date:</strong> {{ resolution_date }}</p>
+    <p><strong>Total Resolution Time:</strong> {{ resolution_duration }} days</p>
+</div>
+
+<h3>What We Found</h3>
+<p>{{ investigation_findings }}</p>
+
+<h3>Actions Taken</h3>
+<p>{{ resolution_actions }}</p>
+
+{% if compensation %}
+<h3>Compensation</h3>
+<p>{{ compensation }}</p>
+{% endif %}
+
+<h3>Feedback</h3>
+<p>Your feedback is important to us. Please let us know about your experience with our complaint resolution process.</p>
+
+<a href="{{ feedback_link }}" class="button">Provide Feedback</a>
+
+<p>Thank you for bringing this matter to our attention and for giving us the opportunity to make things right.</p>
+
+<p>Best regards,<br>
+Swiss Bank Customer Resolution Team</p>
+{% endblock %}
+

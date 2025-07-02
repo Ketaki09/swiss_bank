@@ -1,0 +1,230 @@
+[
+    {
+        "complaint_id":"cd4a9154-dbc9-4e1c-a24d-989f11c25db0",
+        "customer_id":"b8e9620b-bb55-4121-9081-5f2ed6222136",
+        "theme":"fraudulent_activities",
+        "title":"Suspicious transactions I didn't authorize",
+        "description":"There are multiple charges on my card totaling $1900.2 that I did not make. The transactions occurred at Phelps-Torres which I have never visited. Please reverse these charges immediately.",
+        "channel":"branch",
+        "severity":"high",
+        "submission_date":"2025-06-29T01:41:54.367695",
+        "status":"resolved",
+        "attachments":[
+            "photo_evidence.jpg",
+            "receipt.jpg"
+        ],
+        "related_transactions":[
+            {
+                "transaction_id":"728eacc4-2174-4edf-81a4-97f35a0fc749",
+                "date":"2025-06-08T01:41:54.367695",
+                "amount":1096.29,
+                "merchant":"Sosa and Sons",
+                "location":"Laurenburgh",
+                "transaction_type":"withdrawal",
+                "suspicious":false
+            },
+            {
+                "transaction_id":"49c221e0-9c74-4b88-a2b6-1813c48a28d6",
+                "date":"2025-06-15T01:41:54.367695",
+                "amount":649.68,
+                "merchant":"Miller, Fitzgerald and Rodriguez",
+                "location":"Toddview",
+                "transaction_type":"withdrawal",
+                "suspicious":false
+            },
+            {
+                "transaction_id":"e2aba8e8-1e38-4d0a-adac-add9fbcc2fd0",
+                "date":"2025-07-01T01:41:54.367695",
+                "amount":109.28,
+                "merchant":"Walters-Navarro",
+                "location":"Lake Cathyland",
+                "transaction_type":"transfer",
+                "suspicious":false
+            }
+        ],
+        "customer_sentiment":"neutral",
+        "urgency_keywords":[
+            "urgent",
+            "fraudulent",
+            "unauthorized",
+            "stolen",
+            "identity theft",
+            "immediate"
+        ],
+        "resolution_time_expected":55,
+        "financial_impact":1900.2
+    },
+    {
+        "complaint_id":"3b17c6f7-1baf-4c18-9e6d-5534af0fd3f6",
+        "customer_id":"a5177b07-de54-45e6-840e-26175af5e62c",
+        "theme":"fraudulent_activities",
+        "title":"Fraudulent charges on my debit card",
+        "description":"I noticed $3595.52 was withdrawn from my account on 06\/02\/2025 without my authorization. I was not at the ATM location in Edwardsfurt at that time. I need immediate investigation and refund.",
+        "channel":"phone",
+        "severity":"medium",
+        "submission_date":"2025-07-01T01:41:54.382699",
+        "status":"resolved",
+        "attachments":[
+            "police_report.pdf",
+            "bank_statement.pdf"
+        ],
+        "related_transactions":[
+            {
+                "transaction_id":"3918a348-3fa2-4ad3-ba6a-4946b3a0d3a7",
+                "date":"2025-06-23T01:41:54.382699",
+                "amount":1678.69,
+                "merchant":"Brown Group",
+                "location":"North Daleborough",
+                "transaction_type":"transfer",
+                "suspicious":false
+            },
+            {
+                "transaction_id":"bd099ab4-e3df-4421-9551-2b948e7a132d",
+                "date":"2025-06-03T01:41:54.382699",
+                "amount":3382.79,
+                "merchant":"Poole, Ford and Johnson",
+                "location":"East Matthew",
+                "transaction_type":"withdrawal",
+                "suspicious":false
+            },
+            {
+                "transaction_id":"df1a73ad-32d0-439c-bfc8-4f1c64ea6acc",
+                "date":"2025-06-13T01:41:54.382699",
+                "amount":1225.81,
+                "merchant":"Cox-Ortiz",
+                "location":"West Joshua",
+                "transaction_type":"purchase",
+                "suspicious":true
+            },
+            {
+                "transaction_id":"6dc92814-1bb2-4a5b-b11f-bac85ea3ce0e",
+                "date":"2025-07-01T01:41:54.382699",
+                "amount":2662.99,
+                "merchant":"Walton Group",
+                "location":"West Jennifer",
+                "transaction_type":"transfer",
+                "suspicious":true
+            },
+            {
+                "transaction_id":"e32590e6-6848-407f-b770-7d9bd3679255",
+                "date":"2025-06-09T01:41:54.382699",
+                "amount":278.89,
+                "merchant":"Glenn-Todd",
+                "location":"North Christopherland",
+                "transaction_type":"transfer",
+                "suspicious":true
+            },
+            {
+                "transaction_id":"55d96dd6-d019-4307-88d4-ca0a0d38a373",
+                "date":"2025-06-19T01:41:54.382699",
+                "amount":755.99,
+                "merchant":"Nelson, Lowe and Evans",
+                "location":"West Clifford",
+                "transaction_type":"transfer",
+                "suspicious":false
+            }
+        ],
+        "customer_sentiment":"disappointed",
+        "urgency_keywords":[
+            "urgent",
+            "fraudulent",
+            "unauthorized",
+            "stolen",
+            "identity theft",
+            "immediate"
+        ],
+        "resolution_time_expected":47,
+        "financial_impact":3595.52
+    },
+    {
+        "complaint_id":"2da68e51-dacc-4963-b381-81da5976ff9c",
+        "customer_id":"4121c0cb-afe9-4e4a-a668-a98aa666d24e",
+        "theme":"account_freezes",
+        "title":"Account freeze causing financial hardship",
+        "description":"Your system flagged my account for suspicious activity but it's just my regular salary deposit of $486.95. I need access to my money immediately as I have mortgage payments due.",
+        "channel":"mobile_app",
+        "severity":"medium",
+        "submission_date":"2025-06-28T01:41:54.355695",
+        "status":"pending_review",
+        "attachments":[
+
+        ],
+        "related_transactions":[
+            {
+                "transaction_id":"cebe36d4-624e-474c-9f5b-065598a2689c",
+                "date":"2025-06-16T01:41:54.355695",
+                "amount":977.29,
+                "description":"Large Check Deposit",
+                "status":"cleared",
+                "transaction_type":"deposit"
+            },
+            {
+                "transaction_id":"d955ae02-bc67-4854-8cc3-2d3cfaea063e",
+                "date":"2025-06-19T01:41:54.355695",
+                "amount":984.38,
+                "description":"Large Check Deposit",
+                "status":"cleared",
+                "transaction_type":"deposit"
+            },
+            {
+                "transaction_id":"a13b23fe-d3bc-4b4b-a2bd-360c68574b63",
+                "date":"2025-06-19T01:41:54.355695",
+                "amount":978.14,
+                "description":"Salary Deposit",
+                "status":"flagged",
+                "transaction_type":"deposit"
+            },
+            {
+                "transaction_id":"8ee836d4-aed0-4415-8252-a666fc8e6ebf",
+                "date":"2025-06-28T01:41:54.355695",
+                "amount":978.79,
+                "description":"Wire Transfer",
+                "status":"flagged",
+                "transaction_type":"deposit"
+            },
+            {
+                "transaction_id":"6423c87e-c282-4ada-99f3-3776234368dd",
+                "date":"2025-06-12T01:41:54.355695",
+                "amount":986.35,
+                "description":"Large Check Deposit",
+                "status":"cleared",
+                "transaction_type":"deposit"
+            },
+            {
+                "transaction_id":"dfcc87ab-ef9d-4e79-944b-008822b57606",
+                "date":"2025-06-24T01:41:54.355695",
+                "amount":978.36,
+                "description":"Large Check Deposit",
+                "status":"cleared",
+                "transaction_type":"deposit"
+            },
+            {
+                "transaction_id":"1639e038-f43e-4163-afc7-bb38492170c9",
+                "date":"2025-06-29T01:41:54.355695",
+                "amount":984.82,
+                "description":"Salary Deposit",
+                "status":"pending",
+                "transaction_type":"deposit"
+            },
+            {
+                "transaction_id":"ad28646d-7d28-4830-ac46-de88eb78ae28",
+                "date":"2025-06-25T01:41:54.355695",
+                "amount":991.7,
+                "description":"Large Check Deposit",
+                "status":"flagged",
+                "transaction_type":"deposit"
+            }
+        ],
+        "customer_sentiment":"concerned",
+        "urgency_keywords":[
+            "frozen",
+            "hold",
+            "suspended",
+            "cannot access",
+            "financial hardship",
+            "immediate"
+        ],
+        "resolution_time_expected":33,
+        "financial_impact":486.95
+    }
+]

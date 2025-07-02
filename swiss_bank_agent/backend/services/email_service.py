@@ -1,7 +1,5 @@
 # backend/services/email_service.py
 import smtplib
-import sendgrid
-from sendgrid.helpers.mail import Mail, Email, To, Content
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -14,24 +12,15 @@ from pathlib import Path
 
 class EmailService:
     def __init__(self):
-        # Email configuration
-        self.use_sendgrid = os.getenv("USE_SENDGRID", "true").lower() == "true"
-        
-        # SendGrid configuration
-        self.sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
-        self.sendgrid_client = None
-        if self.sendgrid_api_key and self.use_sendgrid:
-            self.sendgrid_client = sendgrid.SendGridAPIClient(api_key=self.sendgrid_api_key)
-        
-        # SMTP configuration (fallback)
+        # SMTP configuration
         self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
         self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
         self.smtp_username = os.getenv("SMTP_USERNAME")
         self.smtp_password = os.getenv("SMTP_PASSWORD")
         
         # Default sender information
-        self.from_email = os.getenv("FROM_EMAIL", "noreply@wellsfargo.com")
-        self.from_name = os.getenv("FROM_NAME", "Wells Fargo Customer Service")
+        self.from_email = os.getenv("FROM_EMAIL", "noreply@swissbank.com")
+        self.from_name = os.getenv("FROM_NAME", "Swiss Bank Customer Service")
         
         # Initialize template engine
         self.template_env = self._setup_templates()
@@ -39,213 +28,34 @@ class EmailService:
     def _setup_templates(self) -> jinja2.Environment:
         """Setup Jinja2 template environment"""
         template_dir = Path(__file__).parent.parent / "templates" / "emails"
+        
+        # Create directory if it doesn't exist
         template_dir.mkdir(parents=True, exist_ok=True)
         
-        # Create default templates if they don't exist
-        self._create_default_templates(template_dir)
+        # Check if template files exist, if not create them
+        self._ensure_template_files_exist(template_dir)
         
         return jinja2.Environment(
             loader=jinja2.FileSystemLoader(template_dir),
             autoescape=jinja2.select_autoescape(['html', 'xml'])
         )
 
-    def _create_default_templates(self, template_dir: Path):
-        """Create default email templates"""
-        templates = {
-            "complaint_confirmation.html": """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Complaint Confirmation - Wells Fargo</title>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #d71e2b; color: white; padding: 20px; text-align: center; }
-        .content { padding: 20px; background-color: #f9f9f9; }
-        .footer { background-color: #333; color: white; padding: 15px; text-align: center; font-size: 12px; }
-        .complaint-box { background: white; padding: 15px; border-left: 4px solid #d71e2b; margin: 15px 0; }
-        .button { background-color: #d71e2b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Wells Fargo</h1>
-            <h2>Complaint Confirmation</h2>
-        </div>
-        <div class="content">
-            <p>Dear {{ customer_name }},</p>
-            
-            <p>Thank you for bringing your concern to our attention. We have received your complaint and want to assure you that we take all customer feedback seriously.</p>
-            
-            <div class="complaint-box">
-                <h3>Complaint Details</h3>
-                <p><strong>Complaint ID:</strong> {{ complaint_id }}</p>
-                <p><strong>Theme:</strong> {{ theme }}</p>
-                <p><strong>Submitted:</strong> {{ submission_date }}</p>
-                <p><strong>Expected Resolution:</strong> {{ estimated_resolution_time }}</p>
-            </div>
-            
-            <h3>What Happens Next?</h3>
-            <ul>
-                <li>Our investigation team will review your complaint within 24 hours</li>
-                <li>We will conduct a thorough analysis of your concern</li>
-                <li>You will receive updates as our investigation progresses</li>
-                <li>We aim to resolve your issue within {{ estimated_resolution_time }}</li>
-            </ul>
-            
-            <p>You can track the status of your complaint using your complaint ID: <strong>{{ complaint_id }}</strong></p>
-            
-            <p>If you have any additional information or questions, please don't hesitate to contact us.</p>
-            
-            <p>Thank you for your patience and for being a valued Wells Fargo customer.</p>
-            
-            <p>Best regards,<br>
-            Wells Fargo Customer Service Team</p>
-        </div>
-        <div class="footer">
-            <p>&copy; {{ current_year }} Wells Fargo Bank, N.A. All rights reserved.</p>
-            <p>This is an automated message. Please do not reply to this email.</p>
-        </div>
-    </div>
-</body>
-</html>
-            """,
-            
-            "investigation_update.html": """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Complaint Investigation Update - Wells Fargo</title>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #d71e2b; color: white; padding: 20px; text-align: center; }
-        .content { padding: 20px; background-color: #f9f9f9; }
-        .footer { background-color: #333; color: white; padding: 15px; text-align: center; font-size: 12px; }
-        .update-box { background: white; padding: 15px; border-left: 4px solid #2e8b57; margin: 15px 0; }
-        .status-badge { background-color: #2e8b57; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Wells Fargo</h1>
-            <h2>Investigation Update</h2>
-        </div>
-        <div class="content">
-            <p>Dear {{ customer_name }},</p>
-            
-            <p>We have an update regarding your complaint investigation.</p>
-            
-            <div class="update-box">
-                <h3>Complaint Status Update</h3>
-                <p><strong>Complaint ID:</strong> {{ complaint_id }}</p>
-                <p><strong>Current Status:</strong> <span class="status-badge">{{ status }}</span></p>
-                <p><strong>Last Updated:</strong> {{ update_date }}</p>
-            </div>
-            
-            <h3>Investigation Progress</h3>
-            <p>{{ investigation_summary }}</p>
-            
-            {% if next_steps %}
-            <h3>Next Steps</h3>
-            <ul>
-            {% for step in next_steps %}
-                <li>{{ step }}</li>
-            {% endfor %}
-            </ul>
-            {% endif %}
-            
-            {% if estimated_completion %}
-            <p><strong>Estimated Completion:</strong> {{ estimated_completion }}</p>
-            {% endif %}
-            
-            <p>We appreciate your patience as we work to resolve your concern thoroughly and fairly.</p>
-            
-            <p>Best regards,<br>
-            Wells Fargo Investigation Team</p>
-        </div>
-        <div class="footer">
-            <p>&copy; {{ current_year }} Wells Fargo Bank, N.A. All rights reserved.</p>
-            <p>This is an automated message. Please do not reply to this email.</p>
-        </div>
-    </div>
-</body>
-</html>
-            """,
-            
-            "resolution_notification.html": """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Complaint Resolution - Wells Fargo</title>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #d71e2b; color: white; padding: 20px; text-align: center; }
-        .content { padding: 20px; background-color: #f9f9f9; }
-        .footer { background-color: #333; color: white; padding: 15px; text-align: center; font-size: 12px; }
-        .resolution-box { background: white; padding: 15px; border-left: 4px solid #2e8b57; margin: 15px 0; }
-        .button { background-color: #d71e2b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block; margin: 10px 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Wells Fargo</h1>
-            <h2>Complaint Resolution</h2>
-        </div>
-        <div class="content">
-            <p>Dear {{ customer_name }},</p>
-            
-            <p>We are pleased to inform you that we have completed our investigation of your complaint and have taken action to resolve your concern.</p>
-            
-            <div class="resolution-box">
-                <h3>Resolution Summary</h3>
-                <p><strong>Complaint ID:</strong> {{ complaint_id }}</p>
-                <p><strong>Resolution Date:</strong> {{ resolution_date }}</p>
-                <p><strong>Total Resolution Time:</strong> {{ resolution_duration }} days</p>
-            </div>
-            
-            <h3>What We Found</h3>
-            <p>{{ investigation_findings }}</p>
-            
-            <h3>Actions Taken</h3>
-            <p>{{ resolution_actions }}</p>
-            
-            {% if compensation %}
-            <h3>Compensation</h3>
-            <p>{{ compensation }}</p>
-            {% endif %}
-            
-            <h3>Feedback</h3>
-            <p>Your feedback is important to us. Please let us know about your experience with our complaint resolution process.</p>
-            
-            <a href="{{ feedback_link }}" class="button">Provide Feedback</a>
-            
-            <p>Thank you for bringing this matter to our attention and for giving us the opportunity to make things right.</p>
-            
-            <p>Best regards,<br>
-            Wells Fargo Customer Resolution Team</p>
-        </div>
-        <div class="footer">
-            <p>&copy; {{ current_year }} Wells Fargo Bank, N.A. All rights reserved.</p>
-            <p>This is an automated message. Please do not reply to this email.</p>
-        </div>
-    </div>
-</body>
-</html>
-            """
-        }
+    def _ensure_template_files_exist(self, template_dir: Path):
+        """Ensure all required template files exist"""
+        required_templates = [
+            "base_template.html",
+            "complaint_confirmation.html", 
+            "investigation_update.html",
+            "resolution_notification.html",
+            "internal_notification.html"
+        ]
         
-        for filename, content in templates.items():
-            template_path = template_dir / filename
+        for template_name in required_templates:
+            template_path = template_dir / template_name
             if not template_path.exists():
-                template_path.write_text(content)
+                print(f"⚠️  Template file missing: {template_name}")
+                print(f"   Please create: {template_path}")
+                print(f"   Refer to the template structure documentation.")
 
     async def send_confirmation_email(self, customer_email: str, complaint_id: str, theme: str, 
                                     customer_name: str = "Valued Customer", 
@@ -322,34 +132,24 @@ class EmailService:
 
     async def send_internal_notification(self, team_emails: List[str], complaint_id: str,
                                        investigation_report: Dict[str, Any]) -> bool:
-        """Send internal notification to expert team"""
+        """Send internal notification to expert team using HTML template"""
         
-        subject = f"New Investigation Report - Complaint ID: {complaint_id}"
-        
-        # Create plain text content for internal team
-        content = f"""
-New Investigation Report Available
-
-Complaint ID: {complaint_id}
-Priority Level: {investigation_report.get('priority_level', 'Medium')}
-Root Cause: {investigation_report.get('root_cause_analysis', 'Analysis pending')}
-
-Recommended Actions:
-{chr(10).join(['- ' + action for action in investigation_report.get('recommended_actions', [])])}
-
-Estimated Resolution Time: {investigation_report.get('estimated_resolution_time', 'TBD')}
-
-Please review the full report in the dashboard.
-
-This is an automated notification from the Complaint Management System.
-        """
+        template_data = {
+            "complaint_id": complaint_id,
+            "priority_level": investigation_report.get('priority_level', 'Medium'),
+            "root_cause_analysis": investigation_report.get('root_cause_analysis', 'Analysis pending'),
+            "recommended_actions": investigation_report.get('recommended_actions', []),
+            "estimated_resolution_time": investigation_report.get('estimated_resolution_time', 'TBD'),
+            "current_year": datetime.now().year
+        }
         
         success = True
         for email in team_emails:
-            email_sent = await self._send_plain_email(
+            email_sent = await self._send_template_email(
                 to_email=email,
-                subject=subject,
-                content=content
+                subject=f"New Investigation Report - Complaint ID: {complaint_id}",
+                template_name="internal_notification.html",
+                template_data=template_data
             )
             if not email_sent:
                 success = False
@@ -364,59 +164,35 @@ This is an automated notification from the Complaint Management System.
             template = self.template_env.get_template(template_name)
             html_content = template.render(**template_data)
             
-            if self.use_sendgrid and self.sendgrid_client:
-                return await self._send_sendgrid_email(to_email, subject, html_content)
-            else:
-                return await self._send_smtp_email(to_email, subject, html_content, is_html=True)
+            return await self._send_smtp_email(to_email, subject, html_content, is_html=True)
                 
+        except jinja2.TemplateNotFound as e:
+            print(f"❌ Template not found: {e}")
+            print(f"   Make sure {template_name} exists in templates/emails/ directory")
+            return False
         except Exception as e:
-            print(f"Error sending template email: {e}")
+            print(f"❌ Error sending template email: {e}")
             return False
 
     async def _send_plain_email(self, to_email: str, subject: str, content: str) -> bool:
         """Send plain text email"""
         try:
-            if self.use_sendgrid and self.sendgrid_client:
-                return await self._send_sendgrid_email(to_email, subject, content, is_html=False)
-            else:
-                return await self._send_smtp_email(to_email, subject, content, is_html=False)
-                
+            return await self._send_smtp_email(to_email, subject, content, is_html=False)
         except Exception as e:
-            print(f"Error sending plain email: {e}")
+            print(f"❌ Error sending plain email: {e}")
             return False
 
-    async def _send_sendgrid_email(self, to_email: str, subject: str, content: str, is_html: bool = True) -> bool:
-        """Send email via SendGrid"""
-        try:
-            from_email = Email(self.from_email, self.from_name)
-            to_email_obj = To(to_email)
-            
-            if is_html:
-                content_obj = Content("text/html", content)
-            else:
-                content_obj = Content("text/plain", content)
-            
-            mail = Mail(from_email, to_email_obj, subject, content_obj)
-            
-            response = self.sendgrid_client.send(mail)
-            
-            if response.status_code in [200, 201, 202]:
-                print(f"✅ Email sent successfully to {to_email}")
-                return True
-            else:
-                print(f"❌ Failed to send email. Status code: {response.status_code}")
-                return False
-                
-        except Exception as e:
-            print(f"SendGrid error: {e}")
-            return False
+    async def send_custom_email(self, to_email: str, subject: str, 
+                              template_name: str, template_data: Dict[str, Any]) -> bool:
+        """Send email with any custom template"""
+        return await self._send_template_email(to_email, subject, template_name, template_data)
 
     async def _send_smtp_email(self, to_email: str, subject: str, content: str, 
                              is_html: bool = True, attachments: Optional[List[str]] = None) -> bool:
         """Send email via SMTP"""
         try:
             if not self.smtp_username or not self.smtp_password:
-                print("SMTP credentials not configured")
+                print("❌ SMTP credentials not configured")
                 return False
             
             # Create message
@@ -457,12 +233,11 @@ This is an automated notification from the Complaint Management System.
             return True
             
         except Exception as e:
-            print(f"SMTP error: {e}")
+            print(f"❌ SMTP error: {e}")
             return False
 
     def get_email_status(self, complaint_id: str) -> Dict[str, Any]:
-        """Get email sending status for a complaint (placeholder for future tracking)"""
-        # This could be expanded to track email delivery status
+        """Get email sending status for a complaint"""
         return {
             "complaint_id": complaint_id,
             "emails_sent": [],
@@ -504,4 +279,38 @@ This is an automated notification from the Complaint Management System.
                 results["errors"].append(f"Error sending to {recipient.get('email', 'unknown')}: {str(e)}")
         
         return results
+
+    def validate_templates(self) -> Dict[str, bool]:
+        """Validate that all required templates exist and are readable"""
+        template_dir = Path(__file__).parent.parent / "templates" / "emails"
+        required_templates = [
+            "base_template.html",
+            "complaint_confirmation.html", 
+            "investigation_update.html",
+            "resolution_notification.html",
+            "internal_notification.html"
+        ]
+        
+        validation_results = {}
+        
+        for template_name in required_templates:
+            template_path = template_dir / template_name
+            try:
+                if template_path.exists() and template_path.is_file():
+                    # Try to load the template to check for syntax errors
+                    self.template_env.get_template(template_name)
+                    validation_results[template_name] = True
+                    print(f"✅ Template validated: {template_name}")
+                else:
+                    validation_results[template_name] = False
+                    print(f"❌ Template missing: {template_name}")
+            except Exception as e:
+                validation_results[template_name] = False
+                print(f"❌ Template error in {template_name}: {e}")
+        
+        return validation_results
+    
+
+
+
     

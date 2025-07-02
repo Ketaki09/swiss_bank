@@ -1,0 +1,37 @@
+{% extends "base_template.html" %}
+
+{% block title %}Complaint Confirmation - Swiss Bank{% endblock %}
+{% block header_title %}Complaint Confirmation{% endblock %}
+
+{% block content %}
+<p>Dear {{ customer_name }},</p>
+
+<p>Thank you for bringing your concern to our attention. We have received your complaint and want to assure you that we take all customer feedback seriously.</p>
+
+<div class="info-box">
+    <h3>Complaint Details</h3>
+    <p><strong>Complaint ID:</strong> {{ complaint_id }}</p>
+    <p><strong>Theme:</strong> {{ theme }}</p>
+    <p><strong>Submitted:</strong> {{ submission_date }}</p>
+    <p><strong>Expected Resolution:</strong> {{ estimated_resolution_time }}</p>
+</div>
+
+<h3>What Happens Next?</h3>
+<div class="action-list">
+    <ul>
+        <li>Our investigation team will review your complaint within 24 hours</li>
+        <li>We will conduct a thorough analysis of your concern</li>
+        <li>You will receive updates as our investigation progresses</li>
+        <li>We aim to resolve your issue within {{ estimated_resolution_time }}</li>
+    </ul>
+</div>
+
+<p>You can track the status of your complaint using your complaint ID: <strong>{{ complaint_id }}</strong></p>
+
+<p>If you have any additional information or questions, please don't hesitate to contact us.</p>
+
+<p>Thank you for your patience and for being a valued Swiss Bank customer.</p>
+
+<p>Best regards,<br>
+Swiss Bank Customer Service Team</p>
+{% endblock %}

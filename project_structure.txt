@@ -1,0 +1,105 @@
+swiss_bank/                                    # Project root folder
+├── Swiss_bank_agent/                          # Backend component (Python/FastAPI)
+│   ├── backend/
+│   │   ├── .vscode/                          # VS Code configuration
+│   │   │   └── settings.json
+│   │   ├── models/                           # Data models
+│   │   │   ├── __pycache__/                  # Python cache files
+│   │   │   └── complaints_model.py
+│   │   ├── services/                         # Business logic services
+│   │   │   ├── database_service.py
+│   │   │   ├── email_service.py              # Updated email service
+│   │   │   ├── investigation_service.py
+│   │   │   └── llm_service.py
+│   │   ├── templates/                        # Email templates 
+│   │   │   └── emails/                       # Email template files
+│   │   │       ├── base_template.html        # Base template with common styling
+│   │   │       ├── complaint_confirmation.html
+│   │   │       ├── investigation_update.html
+│   │   │       ├── resolution_notification.html
+│   │   │       └── internal_notification.html
+│   │   ├── static/                           # Static files (OPTIONAL)
+│   │   │   ├── css/
+│   │   │   ├── js/
+│   │   │   └── images/
+│   │   ├── utils/                            # Utility functions (OPTIONAL)
+│   │   │   ├── __init__.py
+│   │   │   ├── validators.py
+│   │   │   ├── helpers.py
+│   │   │   └── constants.py
+│   │   ├── tests/                            # Test files (RECOMMENDED)
+│   │   │   ├── __init__.py
+│   │   │   ├── test_email_service.py
+│   │   │   ├── test_investigation_service.py
+│   │   │   └── test_complaints_model.py
+│   │   ├── logs/                             # Application logs (OPTIONAL)
+│   │   │   ├── app.log
+│   │   │   └── error.log
+│   │   ├── .env                              # Environment variables
+│   │   ├── main.py                           # FastAPI application entry point
+│   │   └── requirements.txt                  # Python dependencies
+│   ├── data/                                 # Data generation and storage
+│   │   ├── data_generator.py
+│   │   ├── sample_data/                      # Sample data files (OPTIONAL)
+│   │   │   ├── complaints.json
+│   │   │   └── customers.json
+│   ├── docs/                                 # Documentation (RECOMMENDED)
+│   │   ├── API.md                            # API documentation
+│   │   ├── SETUP.md                          # Setup instructions
+│   │   └── EMAIL_TEMPLATES.md                # Email template documentation
+│   └── scripts/                              # Utility scripts (OPTIONAL)
+│       ├── setup_database.py
+│       ├── test_email_templates.py
+│       └── deploy.sh
+│
+│
+├── Swissbank_website/                         # Frontend component (React/Vite)
+│   ├── node_modules/                          # Node.js dependencies
+│   │   ├── .bin/
+│   │   ├── .old-0BAB46D3F20E95F7/
+│   │   ├── .old-1E79E4CC60990167/
+│   │   └── ... (other node modules)
+│   ├── public/                                # Static assets
+│   │   ├── images_upload/                     # User uploaded images
+│   │   ├── favicon.ico
+│   │   ├── placeholder.svg
+│   │   └── robots.txt
+│   ├── src/                                   # Source code
+│   │   ├── components/                        # Reusable UI components
+│   │   │   ├── ui/                           # UI library components
+│   │   │   ├── About.tsx
+│   │   │   ├── hero.tsx
+│   │   │   └── Evachat.tsx
+│   │   ├── hooks/                            # Custom React hooks
+│   │   │   ├── use-mobile.tsx
+│   │   │   └── use-toast.ts
+│   │   ├── lib/                              # Shared libraries and utilities
+│   │   │   └── utils.ts
+│   │   ├── pages/                            # Top-level page components
+│   │   │   ├── index.tsx
+│   │   │   └── NotFound.tsx
+│   │   ├── app.css
+│   │   ├── App.tsx
+│   │   ├── index.css
+│   │   ├── main.tsx
+│   │   └── vite-env.d.ts
+│   ├── .gitignore
+│   ├── bun.lockb
+│   ├── components.json
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── postcss.config.js
+│   ├── README.md
+│   ├── tailwind.config.ts
+│   ├── tsconfig.app.json
+│   ├── tsconfig.json
+│   ├── tsconfig.node.json
+│   └── vite.config.ts
+│
+├── .gitignore                                # Global gitignore
+├── .gitmodules                               # Access git sub modules
+├── README.md                                 # Project documentation
+├── docker-compose.yml                        # Docker configuration (OPTIONAL)
+└── Dockerfile                                # Docker configuration (OPTIONAL)
