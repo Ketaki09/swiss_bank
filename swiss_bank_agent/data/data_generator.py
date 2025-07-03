@@ -1,3 +1,4 @@
+# data/data_generator.py
 """
 Swiss Bank Complaint Synthetic Data Generator - MongoDB Only
 
@@ -27,6 +28,23 @@ import faker
 
 # Initialize Faker for realistic data generation
 fake = faker.Faker()
+
+
+# =============================================================================
+# PHONE NUMBER GENERATOR FUNCTION
+# =============================================================================
+
+def generate_phone_number() -> str:
+    """
+    Generate phone number in strict format: +19966118088
+    No extra symbols, spaces, or numbers beyond the required format.
+    
+    Returns:
+        Phone number string in format +1 followed by 10 digits
+    """
+    # Generate exactly 10 digits for the phone number
+    phone_digits = ''.join([str(random.randint(0, 9)) for _ in range(10)])
+    return f"+1{phone_digits}"
 
 
 # =============================================================================
@@ -277,10 +295,10 @@ class SyntheticDataGenerator:
             customer_id=str(uuid.uuid4()),
             name=fake.name(),
             email=fake.email(),
-            phone=fake.phone_number(),
+            phone=generate_phone_number(),  # Using our custom phone generator
             account_number=fake.bban(),
             account_type=random.choice(["checking", "savings", "business", "premium"]),
-            registration_date=fake.date_between(start_date='-10y', end_date='-1y'),
+            registration_date= fake.date_between(start_date='-10y', end_date='-1y'),
             previous_complaints=random.randint(0, 5),
             credit_score=random.randint(300, 850),
             monthly_balance=round(random.uniform(100, 50000), 2),
@@ -583,8 +601,9 @@ if __name__ == "__main__":
     for theme, count in theme_counts.items():
         percentage = (count / len(dataset['complaints'])) * 100
         print(f"     - {theme}: {count} ({percentage:.1f}%)")
+    
+    # Display some sample phone numbers to verify format
+    print(f"\n📞 Sample Phone Numbers (verifying format):")
+    for i in range(5):
+        print(f"   • {dataset['customers'][i].phone}")
 
-
-
-
-        

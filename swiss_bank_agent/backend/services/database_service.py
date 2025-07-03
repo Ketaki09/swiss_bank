@@ -468,6 +468,7 @@ class DatabaseService:
                     "error": "Database client not initialized"
                 }
             
+            await self.client.admin.command('ping')
             # Check if database exists
             if not self.database:
                 return {

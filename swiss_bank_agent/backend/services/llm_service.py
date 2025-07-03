@@ -1,5 +1,4 @@
 # backend/services/llm_service.py
-import openai
 import anthropic
 from typing import Dict, Any, List, Optional
 import json
@@ -9,12 +8,8 @@ import os
 
 class LLMService:
     def __init__(self):
-        # Initialize LLM clients
-        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # Initialize Claude client
         self.anthropic_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        
-        # Configuration
-        self.use_anthropic = os.getenv("USE_ANTHROPIC", "true").lower() == "true"
         
         # Chat session memory
         self.chat_sessions = {}
@@ -26,10 +21,7 @@ class LLMService:
         prompt = self._build_complaint_processing_prompt(text, customer_context, attachments)
         
         try:
-            if self.use_anthropic:
-                response = await self._call_anthropic(prompt)
-            else:
-                response = await self._call_openai(prompt)
+            response = await self._call_anthropic(prompt)
             
             # Parse the structured response
             processed_data = self._parse_complaint_response(response, text, customer_context)
@@ -54,10 +46,7 @@ class LLMService:
         prompt = self._build_chat_prompt(message, customer_context, self.chat_sessions[session_id])
         
         try:
-            if self.use_anthropic:
-                response = await self._call_anthropic(prompt)
-            else:
-                response = await self._call_openai(prompt)
+            response = await self._call_anthropic(prompt)
             
             # Add bot response to session
             self.chat_sessions[session_id].append({"role": "assistant", "content": response})
@@ -70,7 +59,7 @@ class LLMService:
             
         except Exception as e:
             print(f"Error generating chat response: {e}")
-            return "I apologize, but I'm experiencing technical difficulties. Please try again or contact our support team directly."
+            return "I apologize, but I'm experiencing technical difficulties. Please try again or contact our support team directly. support@swissbank.com"
 
     def _build_complaint_processing_prompt(self, text: str, customer_context: Dict[str, Any], attachments: List[str] = None) -> str:
         """Build prompt for complaint processing"""
@@ -79,7 +68,7 @@ class LLMService:
             attachments_text = f"\nAttachments provided: {', '.join(attachments)}"
         
         return f"""
-You are an expert complaint analyst for Wells Fargo. Analyze the following customer complaint and extract structured information.
+You are an expert complaint analyst for Swiss bank. Analyze the following customer complaint and extract structured information.
 
 Customer Information:
 - Name: {customer_context.get('name', 'Unknown')}
@@ -151,27 +140,13 @@ Respond naturally and helpfully to the customer's message.
         """Call Anthropic Claude API"""
         try:
             response = self.anthropic_client.messages.create(
-                model="claude-3-sonnet-20240229",
+                model="claude-sonnet-4-20250514",
                 max_tokens=1000,
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.content[0].text
         except Exception as e:
             print(f"Anthropic API error: {e}")
-            raise e
-
-    async def _call_openai(self, prompt: str) -> str:
-        """Call OpenAI GPT API"""
-        try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000,
-                temperature=0.7
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            print(f"OpenAI API error: {e}")
             raise e
 
     def _parse_complaint_response(self, response: str, original_text: str, customer_context: Dict[str, Any]) -> Dict[str, Any]:
@@ -384,7 +359,4 @@ Focus on:
             "bot_message_count": len(bot_messages),
             "last_activity": datetime.now().isoformat()
         }
-    
-
-
     
