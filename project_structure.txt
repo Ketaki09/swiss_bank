@@ -7,6 +7,7 @@ swiss_bank/                                    # Project root folder
 │   │   │   ├── __pycache__/                  # Python cache files
 │   │   │   └── complaints_model.py
 │   │   ├── services/                         # Business logic services
+│   │   │   ├── auth_controller.py            # Authentication sesion manager with user attempt limits
 │   │   │   ├── auth_service.py               # authentication service over mail / phone number
 │   │   │   ├── database_service.py
 │   │   │   ├── email_service.py              # Updated email service
