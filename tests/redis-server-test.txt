@@ -1,0 +1,8 @@
+# Check if Redis is running
+redis-cli ping
+
+# Check your server health
+curl http://127.0.0.1:8001/health
+
+# Test your API root
+curl http://127.0.0.1:8001/
