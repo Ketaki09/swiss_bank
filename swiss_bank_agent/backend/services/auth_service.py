@@ -11,7 +11,7 @@ import re
 import json
 from pathlib import Path
 from twilio.rest import Client
-from database_service import DatabaseService
+from .database_service import DatabaseService
 import redis
 import logging
 
