@@ -6,3 +6,10 @@ curl http://127.0.0.1:8001/health
 
 # Test your API root
 curl http://127.0.0.1:8001/
+
+
+Interactive API docs: http://127.0.0.1:8001/docs
+Alternative docs: http://127.0.0.1:8001/redoc
+
+# Initite authentication session
+-X POST http://127.0.0.1:8001/api/auth/session -H "Content-Type: application/json" -d "{\"ip_address\": \"127.0.0.1\", \"user_agent\": \"test-client\"}"
