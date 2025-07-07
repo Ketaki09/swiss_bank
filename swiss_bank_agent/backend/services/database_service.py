@@ -1,9 +1,9 @@
 # backend/services/database_service.py
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 from pymongo import ASCENDING, DESCENDING
 from bson import ObjectId
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 import uuid
 import os
 import logging
@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 
 class DatabaseService:
     def __init__(self):
-        self.client = None
-        self.database = None
-        self.complaints_collection = None
-        self.customers_collection = None
-        self.investigations_collection = None
-        self.chat_sessions_collection = None
-        self.temp_data_collection = None  
+        self.client: Optional[AsyncIOMotorClient] = None
+        self.database: Optional[AsyncIOMotorDatabase] = None
+        self.complaints_collection: Optional[AsyncIOMotorCollection] = None
+        self.customers_collection: Optional[AsyncIOMotorCollection] = None
+        self.investigations_collection: Optional[AsyncIOMotorCollection] = None
+        self.chat_sessions_collection: Optional[AsyncIOMotorCollection] = None
+        self.temp_data_collection: Optional[AsyncIOMotorCollection] = None
         
         # MongoDB connection string - update with your credentials
         self.connection_string = os.getenv("MONGODB_URL", "mongodb://localhost:27017/")
@@ -30,7 +30,15 @@ class DatabaseService:
 
     def _check_connection(self) -> bool:
         """Check if database connection is established"""
-        return self.client is not None and self.database is not None
+        return (
+            self.client is not None and 
+            self.database is not None and
+            self.complaints_collection is not None and
+            self.customers_collection is not None and
+            self.investigations_collection is not None and
+            self.chat_sessions_collection is not None and
+            self.temp_data_collection is not None
+        )
 
     async def connect(self):
         """Initialize database connection"""
@@ -55,7 +63,7 @@ class DatabaseService:
             self.customers_collection = self.database.customers
             self.investigations_collection = self.database.investigations
             self.chat_sessions_collection = self.database.chat_sessions
-            self.temp_data_collection = self.database.temp_data  
+            self.temp_data_collection = self.database.temp_data
             
             # Create indexes for better performance
             await self.create_indexes()
@@ -69,32 +77,59 @@ class DatabaseService:
                 self.client.close()
                 self.client = None
                 self.database = None
+                self.complaints_collection = None
+                self.customers_collection = None
+                self.investigations_collection = None
+                self.chat_sessions_collection = None
+                self.temp_data_collection = None
             raise e
 
     async def disconnect(self):
         """Close database connection"""
         if self.client:
             self.client.close()
+            # Reset all references
+            self.client = None
+            self.database = None
+            self.complaints_collection = None
+            self.customers_collection = None
+            self.investigations_collection = None
+            self.chat_sessions_collection = None
+            self.temp_data_collection = None
             logger.info("Database connection closed")
 
     async def create_indexes(self):
         """Create database indexes for optimal performance"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
+            # Type assertion to help Pylance understand these are not None
+            complaints_col = self.complaints_collection
+            customers_col = self.customers_collection
+            investigations_col = self.investigations_collection
+            temp_data_col = self.temp_data_collection
+            
+            assert complaints_col is not None
+            assert customers_col is not None
+            assert investigations_col is not None
+            assert temp_data_col is not None
+            
             # Complaints indexes
-            await self.complaints_collection.create_index([("customer_id", ASCENDING)])
-            await self.complaints_collection.create_index([("status", ASCENDING)])
-            await self.complaints_collection.create_index([("submission_date", DESCENDING)])
-            await self.complaints_collection.create_index([("theme", ASCENDING)])
+            await complaints_col.create_index([("customer_id", ASCENDING)])
+            await complaints_col.create_index([("status", ASCENDING)])
+            await complaints_col.create_index([("submission_date", DESCENDING)])
+            await complaints_col.create_index([("theme", ASCENDING)])
             
             # Customers indexes
-            await self.customers_collection.create_index([("customer_id", ASCENDING)], unique=True)
-            await self.customers_collection.create_index([("email", ASCENDING)])
+            await customers_col.create_index([("customer_id", ASCENDING)], unique=True)
+            await customers_col.create_index([("email", ASCENDING)])
             
             # Investigations indexes
-            await self.investigations_collection.create_index([("complaint_id", ASCENDING)])
+            await investigations_col.create_index([("complaint_id", ASCENDING)])
             
             # Temp data indexes - TTL index for automatic expiration
-            await self.temp_data_collection.create_index([("expires_at", 1)], expireAfterSeconds=0)
+            await temp_data_col.create_index([("expires_at", 1)], expireAfterSeconds=0)
             
             logger.info("Database indexes created successfully")
             
@@ -104,10 +139,15 @@ class DatabaseService:
 
     async def save_complaint(self, complaint_data: Dict[str, Any]) -> str:
         """Save a new complaint to database"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            if not self._check_connection():
-                raise ConnectionError("Database connection not established")
-                
+            complaints_col = self.complaints_collection
+            customers_col = self.customers_collection
+            assert complaints_col is not None
+            assert customers_col is not None
+            
             complaint_id = str(uuid.uuid4())
             
             complaint_doc = {
@@ -131,10 +171,10 @@ class DatabaseService:
                 "updated_at": datetime.now()
             }
             
-            result = await self.complaints_collection.insert_one(complaint_doc)
+            result = await complaints_col.insert_one(complaint_doc)
             
             # Update customer's complaint history
-            await self.customers_collection.update_one(
+            await customers_col.update_one(
                 {"customer_id": complaint_data["customer_id"]},
                 {"$addToSet": {"previous_complaints": complaint_id}},
                 upsert=False  # Don't create customer if doesn't exist
@@ -149,8 +189,14 @@ class DatabaseService:
 
     async def get_complaint(self, complaint_id: str) -> Optional[Dict[str, Any]]:
         """Get complaint by ID (using custom complaint_id, not MongoDB _id)"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            complaint = await self.complaints_collection.find_one(
+            complaints_col = self.complaints_collection
+            assert complaints_col is not None
+            
+            complaint = await complaints_col.find_one(
                 {"complaint_id": complaint_id},
                 {"_id": 0}  # Exclude MongoDB ObjectId from response
             )
@@ -161,8 +207,14 @@ class DatabaseService:
     
     async def get_complaint_by_object_id(self, object_id: str) -> Optional[Dict[str, Any]]:
         """Get complaint by MongoDB ObjectId (if needed for internal operations)"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            complaint = await self.complaints_collection.find_one(
+            complaints_col = self.complaints_collection
+            assert complaints_col is not None
+            
+            complaint = await complaints_col.find_one(
                 {"_id": ObjectId(object_id)},
                 {"_id": 0}
             )
@@ -173,8 +225,14 @@ class DatabaseService:
 
     async def get_customer(self, customer_id: str) -> Optional[Dict[str, Any]]:
         """Get customer by ID (using custom customer_id, not MongoDB _id)"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            customer = await self.customers_collection.find_one(
+            customers_col = self.customers_collection
+            assert customers_col is not None
+            
+            customer = await customers_col.find_one(
                 {"customer_id": customer_id},
                 {"_id": 0}  # Exclude MongoDB ObjectId from response
             )
@@ -185,8 +243,14 @@ class DatabaseService:
     
     async def get_customer_by_object_id(self, object_id: str) -> Optional[Dict[str, Any]]:
         """Get customer by MongoDB ObjectId (if needed for internal operations)"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            customer = await self.customers_collection.find_one(
+            customers_col = self.customers_collection
+            assert customers_col is not None
+            
+            customer = await customers_col.find_one(
                 {"_id": ObjectId(object_id)},
                 {"_id": 0}
             )
@@ -197,8 +261,14 @@ class DatabaseService:
 
     async def get_customer_complaint_history(self, customer_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Get customer's complaint history"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            complaints = await self.complaints_collection.find(
+            complaints_col = self.complaints_collection
+            assert complaints_col is not None
+            
+            complaints = await complaints_col.find(
                 {"customer_id": customer_id},
                 {"_id": 0}
             ).sort("submission_date", DESCENDING).limit(limit).to_list(length=limit)
@@ -210,8 +280,14 @@ class DatabaseService:
 
     async def get_similar_complaints(self, theme: str, customer_id: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Find similar complaints for RCA"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            similar_complaints = await self.complaints_collection.find(
+            complaints_col = self.complaints_collection
+            assert complaints_col is not None
+            
+            similar_complaints = await complaints_col.find(
                 {
                     "theme": theme,
                     "customer_id": {"$ne": customer_id},  # Exclude current customer
@@ -227,7 +303,13 @@ class DatabaseService:
 
     async def update_complaint_status(self, complaint_id: str, status: str, notes: Optional[str] = None) -> bool:
         """Update complaint status"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
+            complaints_col = self.complaints_collection
+            assert complaints_col is not None
+            
             update_doc = {
                 "status": status,
                 "updated_at": datetime.now()
@@ -236,7 +318,7 @@ class DatabaseService:
             if notes:
                 update_doc["agent_notes"] = notes
             
-            result = await self.complaints_collection.update_one(
+            result = await complaints_col.update_one(
                 {"complaint_id": complaint_id},
                 {"$set": update_doc}
             )
@@ -248,8 +330,14 @@ class DatabaseService:
 
     async def find_customer(self, query: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Find customer by query parameters"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            customer = await self.customers_collection.find_one(
+            customers_col = self.customers_collection
+            assert customers_col is not None
+            
+            customer = await customers_col.find_one(
                 query,
                 {"_id": 0} 
             )
@@ -260,7 +348,15 @@ class DatabaseService:
     
     async def save_investigation_report(self, report: Dict[str, Any]) -> str:
         """Save investigation report"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
+            investigations_col = self.investigations_collection
+            complaints_col = self.complaints_collection
+            assert investigations_col is not None
+            assert complaints_col is not None
+            
             investigation_id = str(uuid.uuid4())
             
             report_doc = {
@@ -276,10 +372,10 @@ class DatabaseService:
                 "status": "pending"
             }
             
-            await self.investigations_collection.insert_one(report_doc)
+            await investigations_col.insert_one(report_doc)
             
             # Update complaint with investigation ID
-            await self.complaints_collection.update_one(
+            await complaints_col.update_one(
                 {"complaint_id": report["complaint_id"]},
                 {"$set": {"investigation_id": investigation_id, "status": "investigating"}}
             )
@@ -292,12 +388,18 @@ class DatabaseService:
 
     async def get_complaints_for_dashboard(self, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         """Get complaints for dashboard view"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
+            complaints_col = self.complaints_collection
+            assert complaints_col is not None
+            
             query = {}
             if status:
                 query["status"] = status
                 
-            complaints = await self.complaints_collection.find(
+            complaints = await complaints_col.find(
                 query,
                 {"_id": 0}
             ).sort("submission_date", DESCENDING).limit(limit).to_list(length=limit)
@@ -319,7 +421,13 @@ class DatabaseService:
 
     async def save_chat_message(self, session_id: str, customer_id: str, message: str, is_bot: bool = False):
         """Save chat message to session"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
+            chat_sessions_col = self.chat_sessions_collection
+            assert chat_sessions_col is not None
+            
             message_doc = {
                 "session_id": session_id,
                 "customer_id": customer_id,
@@ -328,15 +436,21 @@ class DatabaseService:
                 "timestamp": datetime.now()
             }
             
-            await self.chat_sessions_collection.insert_one(message_doc)
+            await chat_sessions_col.insert_one(message_doc)
             logger.info(f"Chat message saved for session {session_id}")
         except Exception as e:
             logger.error(f"Error saving chat message: {e}")
 
     async def get_chat_history(self, session_id: str, limit: int = 20) -> List[Dict[str, Any]]:
         """Get chat history for a session"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            messages = await self.chat_sessions_collection.find(
+            chat_sessions_col = self.chat_sessions_collection
+            assert chat_sessions_col is not None
+            
+            messages = await chat_sessions_col.find(
                 {"session_id": session_id},
                 {"_id": 0}
             ).sort("timestamp", ASCENDING).limit(limit).to_list(length=limit)
@@ -348,24 +462,30 @@ class DatabaseService:
 
     async def get_complaint_statistics(self) -> Dict[str, Any]:
         """Get complaint statistics for dashboard"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            total_complaints = await self.complaints_collection.count_documents({})
+            complaints_col = self.complaints_collection
+            assert complaints_col is not None
+            
+            total_complaints = await complaints_col.count_documents({})
             
             # Count by status
             status_pipeline = [
                 {"$group": {"_id": "$status", "count": {"$sum": 1}}}
             ]
-            status_counts = await self.complaints_collection.aggregate(status_pipeline).to_list(length=None)
+            status_counts = await complaints_col.aggregate(status_pipeline).to_list(length=None)
             
             # Count by severity
             severity_pipeline = [
                 {"$group": {"_id": "$severity", "count": {"$sum": 1}}}
             ]
-            severity_counts = await self.complaints_collection.aggregate(severity_pipeline).to_list(length=None)
+            severity_counts = await complaints_col.aggregate(severity_pipeline).to_list(length=None)
             
             # Recent complaints (last 7 days)
             last_week = datetime.now() - timedelta(days=7)
-            recent_complaints = await self.complaints_collection.count_documents(
+            recent_complaints = await complaints_col.count_documents(
                 {"submission_date": {"$gte": last_week}}
             )
             
@@ -386,13 +506,14 @@ class DatabaseService:
 
     async def store_temp_data(self, data: Dict[str, Any]) -> bool:
         """Store temporary data with TTL (Time To Live)"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            # Check if database connection exists
-            if not self._check_connection():
-                raise ConnectionError("Database connection not established")
-                
-            # Use the initialized temp_data_collection
-            result = await self.temp_data_collection.replace_one(
+            temp_data_col = self.temp_data_collection
+            assert temp_data_col is not None
+            
+            result = await temp_data_col.replace_one(
                 {"_id": data["_id"]},
                 data,
                 upsert=True
@@ -406,12 +527,14 @@ class DatabaseService:
 
     async def get_temp_data(self, key: str) -> Optional[Dict[str, Any]]:
         """Retrieve temporary data by key"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            # Check if database connection exists
-            if not self._check_connection():
-                raise ConnectionError("Database connection not established")
-                
-            result = await self.temp_data_collection.find_one({"_id": key})
+            temp_data_col = self.temp_data_collection
+            assert temp_data_col is not None
+            
+            result = await temp_data_col.find_one({"_id": key})
             
             if result:
                 # Remove MongoDB's _id field from the result
@@ -426,12 +549,14 @@ class DatabaseService:
 
     async def delete_temp_data(self, key: str) -> bool:
         """Delete temporary data by key"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            # Check if database connection exists
-            if not self._check_connection():
-                raise ConnectionError("Database connection not established")
-                
-            result = await self.temp_data_collection.delete_one({"_id": key})
+            temp_data_col = self.temp_data_collection
+            assert temp_data_col is not None
+            
+            result = await temp_data_col.delete_one({"_id": key})
             
             return result.deleted_count > 0
             
@@ -441,13 +566,15 @@ class DatabaseService:
 
     async def cleanup_expired_temp_data(self):
         """Manually cleanup expired temporary data (MongoDB TTL should handle this automatically)"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+            
         try:
-            # Check if database connection exists
-            if not self._check_connection():
-                raise ConnectionError("Database connection not established")
-                
+            temp_data_col = self.temp_data_collection
+            assert temp_data_col is not None
+            
             # Delete documents where expires_at < current time
-            result = await self.temp_data_collection.delete_many({
+            result = await temp_data_col.delete_many({
                 "expires_at": {"$lt": datetime.now()}
             })
             
@@ -469,11 +596,21 @@ class DatabaseService:
                 }
             
             await self.client.admin.command('ping')
-            # Check if database exists
-            if not self.database:
+            
+            # Check if database exists by trying to get its name
+            # This is a safer way to check than using boolean evaluation
+            if self.database is None:
                 return {
                     "status": "unhealthy",
                     "error": "Database not initialized"
+                }
+            
+            # Try to get database name to verify it's properly initialized
+            db_name = self.database.name
+            if not db_name:
+                return {
+                    "status": "unhealthy",
+                    "error": "Database name not accessible"
                 }
             
             # Get database stats
@@ -481,6 +618,7 @@ class DatabaseService:
             
             return {
                 "status": "healthy",
+                "database_name": db_name,
                 "collections": stats.get("collections", 0),
                 "dataSize": stats.get("dataSize", 0),
                 "storageSize": stats.get("storageSize", 0)
@@ -552,5 +690,5 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Error cleaning up OTP for {phone_number}: {e}")
             return False
-        
+
 
