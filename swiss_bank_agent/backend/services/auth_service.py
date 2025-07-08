@@ -7,7 +7,6 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 import os
-import re
 import json
 from pathlib import Path
 from twilio.rest import Client
@@ -23,6 +22,7 @@ logger = logging.getLogger(__name__)
 class AuthService:
     def __init__(self):
         self.db_service = DatabaseService()
+        self._db_connected = False
         
         # Email configuration
         self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
@@ -45,8 +45,9 @@ class AuthService:
         
         # OTP configuration
         self.otp_length = 6
-        self.otp_expiry_minutes = 3
+        self.otp_expiry_minutes = 5
         self.max_otp_attempts = 3
+        self.otp_cooldown_seconds = 60
         
         # Contact verification attempts configuration
         self.max_contact_attempts = 3
@@ -54,6 +55,34 @@ class AuthService:
         
         # Fallback storage (only used if both Redis and MongoDB fail)
         self.memory_storage = {}
+
+        # Technical error codes that should trigger retries
+        self.technical_error_codes = {
+            "DATABASE_ERROR", "NETWORK_ERROR", "TIMEOUT_ERROR", 
+            "SERVICE_ERROR", "SEND_FAILED", "RESEND_FAILED"
+        }
+
+    async def initialize(self):
+        """Initialize the AuthService - must be called before using other methods"""
+        try:
+            await self.db_service.connect()
+            self._db_connected = True
+            logger.info("AuthService initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize AuthService: {e}")
+            self._db_connected = False
+            raise e
+
+    async def ensure_db_connection(self):
+        """Ensure database connection is established"""
+        if not self._db_connected:
+            try:
+                await self.db_service.connect()
+                self._db_connected = True
+            except Exception as e:
+                logger.error(f"Failed to establish database connection: {e}")
+                raise ConnectionError("Database connection failed")
+
 
     def _init_redis(self):
         """Initialize Redis connection with error handling"""
@@ -78,7 +107,13 @@ class AuthService:
     async def _store_data(self, key: str, data: Dict[str, Any], expiry_seconds: int = 180):
         """Store data with Redis primary, MongoDB fallback"""
         try:
-            serialized_data = json.dumps(data, default=str)
+            # Convert datetime objects to ISO format for JSON serialization
+            def datetime_serializer(obj):
+                if isinstance(obj, datetime):
+                    return obj.isoformat()
+                return str(obj)
+            
+            serialized_data = json.dumps(data, default=datetime_serializer)
             
             if self.use_redis and self.redis_client:
                 try:
@@ -89,6 +124,7 @@ class AuthService:
                     self.use_redis = False
             
             # MongoDB fallback
+            await self.ensure_db_connection()  # Ensure DB connection is established
             expiry_time = datetime.now() + timedelta(seconds=expiry_seconds)
             await self.db_service.store_temp_data({
                 "_id": key,
@@ -112,27 +148,33 @@ class AuthService:
         try:
             if self.use_redis and self.redis_client:
                 try:
-                    value = await self.redis_client.get(key)
+                    value = self.redis_client.get(key)
                     if value:
                         # Decode and parse JSON
                         if isinstance(value, bytes):
-                            return json.loads(value.decode("utf-8"))
+                            data = json.loads(value.decode("utf-8"))
                         elif isinstance(value, str):
-                            return json.loads(value)
+                            data = json.loads(value)
                         else:
                             logger.warning(f"Unexpected Redis value type: {type(value)}")
+                            return None
+                        
+                        # Convert ISO format strings back to datetime objects
+                        return self._deserialize_datetime_fields(data)
                 except Exception as e:
                     logger.warning(f"Redis retrieval failed: {e}. Trying MongoDB")
                     self.use_redis = False
             
             # MongoDB fallback
+            await self.ensure_db_connection()  
             temp_data = await self.db_service.get_temp_data(key)
             if temp_data:
                 # Check if expired
                 if datetime.now() > temp_data["expires_at"]:
                     await self.db_service.delete_temp_data(key)
                     return None
-                return json.loads(temp_data["data"])
+                data = json.loads(temp_data["data"])
+                return self._deserialize_datetime_fields(data)
             
             # Memory fallback
             if key in self.memory_storage:
@@ -140,7 +182,11 @@ class AuthService:
                 if datetime.now() > stored["expires_at"]:
                     del self.memory_storage[key]
                     return None
-                return stored["data"]
+                # Parse JSON and deserialize datetime fields
+                if isinstance(stored["data"], str):
+                    data = json.loads(stored["data"])
+                    return self._deserialize_datetime_fields(data)
+                return stored["data"]  
             
             return None
             
@@ -158,6 +204,7 @@ class AuthService:
                     logger.warning(f"Redis deletion failed: {e}")
             
             # MongoDB cleanup
+            await self.ensure_db_connection() 
             await self.db_service.delete_temp_data(key)
             
             # Memory cleanup
@@ -167,43 +214,155 @@ class AuthService:
         except Exception as e:
             logger.error(f"Data deletion failed: {e}")
 
+    def _deserialize_datetime_fields(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert ISO format datetime strings back to datetime objects"""
+        datetime_fields = [
+            'created_at', 'last_activity', 'expiry', 'locked_at', 
+            'contact_verified_at', 'otp_initiated_at', 'otp_resent_at', 
+            'authenticated_at', 'expires_at'
+        ]
+        
+        for field in datetime_fields:
+            if field in data and isinstance(data[field], str):
+                try:
+                    data[field] = datetime.fromisoformat(data[field])
+                except ValueError:
+                    # If it's not a valid ISO format, leave as string
+                    pass
+        
+        return data
+
     def load_email_template(self, template_name: str) -> str:
-        """Load email template from file"""
+        """Load email template from file with improved error handling"""
         try:
+            print(f"Loading email template: {template_name}")
             template_file = self.template_path / template_name
             with open(template_file, 'r', encoding='utf-8') as file:
-                return file.read()
+                content = file.read()
+                logger.info(f"Successfully loaded template: {template_name}")
+                return content
         except FileNotFoundError:
             logger.warning(f"Template {template_name} not found at {template_file}")
+            logger.info("Using fallback template")
             return self._get_fallback_template()
         except Exception as e:
             logger.error(f"Error loading template {template_name}: {e}")
+            logger.info("Using fallback template")
             return self._get_fallback_template()
 
     def _get_fallback_template(self) -> str:
-        """Fallback template if file loading fails"""
+        """Improved fallback template matching test_email.py style"""
+        return """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Swiss Bank - Authentication Code</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            background-color: #1a472a;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 30px;
+        }
+        .otp {
+            font-size: 32px;
+            font-weight: bold;
+            color: #1a472a;
+            text-align: center;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            margin: 20px 0;
+            letter-spacing: 3px;
+        }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            font-size: 14px;
+            color: #6c757d;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Swiss Bank</h1>
+            <h2>Authentication Code</h2>
+        </div>
+        <div class="content">
+            <p>Dear {customer_name},</p>
+            <p>Your verification code is:</p>
+            <div class="otp">{otp}</div>
+            <p>This code will expire in <strong>{expiry_minutes} minutes</strong>.</p>
+            <p><strong>Important:</strong> Do not share this code with anyone. Swiss Bank will never ask for this code over the phone or email.</p>
+        </div>
+        <div class="footer">
+            <p><strong>Best regards,</strong><br>Swiss Bank Security Team</p>
+            <p>If you did not request this code, please contact us immediately.</p>
+        </div>
+    </div>
+</body>
+</html>"""
+
+    def _get_simple_fallback_template(self) -> str:
+        """Simple fallback template as last resort"""
         return """
         <html>
-        <body>
-            <h2>Swiss Bank - Authentication Code</h2>
+        <body style="font-family: Arial, sans-serif; margin: 20px;">
+            <h2 style="color: #1a472a;">Swiss Bank - Authentication Code</h2>
             <p>Dear {customer_name},</p>
-            <p>Your verification code is: <strong>{otp}</strong></p>
-            <p>This code will expire in {expiry_minutes} minutes.</p>
+            <p>Your verification code is:</p>
+            <div style="font-size: 24px; font-weight: bold; color: #1a472a; text-align: center; padding: 20px; background-color: #f8f9fa; border-radius: 8px; margin: 20px 0;">
+                {otp}
+            </div>
+            <p>This code will expire in <strong>{expiry_minutes} minutes</strong>.</p>
+            <p><strong>Important:</strong> Do not share this code with anyone.</p>
             <p>Best regards,<br>Swiss Bank Security Team</p>
         </body>
         </html>
         """
 
     def render_template(self, template_content: str, **kwargs) -> str:
-        """Render template with provided variables"""
+        """Render template with improved error handling - using replace method like test_email.py"""
         try:
-            return template_content.format(**kwargs)
-        except KeyError as e:
-            logger.error(f"Missing template variable: {e}")
-            return template_content
+            # First try the string replacement method (more reliable)
+            rendered_content = template_content
+            for key, value in kwargs.items():
+                placeholder = "{" + key + "}"
+                rendered_content = rendered_content.replace(placeholder, str(value))
+            
+            # Check if all placeholders were replaced
+            if "{" in rendered_content and "}" in rendered_content:
+                logger.warning("Some template placeholders may not have been replaced")
+            
+            return rendered_content
+            
         except Exception as e:
-            logger.error(f"Error rendering template: {e}")
-            return template_content
+            logger.error(f"Error rendering template with replace method: {e}")
+            try:
+                # Fallback to format method
+                return template_content.format(**kwargs)
+            except Exception as format_error:
+                logger.error(f"Error rendering template with format method: {format_error}")
+                # Return simple fallback
+                return self._get_simple_fallback_template().replace("{customer_name}", str(kwargs.get("customer_name", "Valued Customer"))).replace("{otp}", str(kwargs.get("otp", "000000"))).replace("{expiry_minutes}", str(kwargs.get("expiry_minutes", "5")))
 
     def determine_otp_method(self, email: Optional[str] = None, phone: Optional[str] = None, 
                            preferred_method: Optional[str] = None) -> str:
@@ -219,18 +378,18 @@ class AuthService:
             return 'email'
         elif phone and not email:
             return 'sms'
-        elif email and phone:
-            # Default to email if both are available
-            return 'email'
         else:
             return 'email'  # Default fallback
 
     async def check_customer_exists(self, email: Optional[str] = None, phone: Optional[str] = None) -> Dict[str, Any]:
         """Check if customer exists in database - returns standardized response"""
         try:
+            # Ensure database connection
+            await self.ensure_db_connection()
+            
             query = {}
             if email:
-                query["email"] = email.lower()
+                query["email"] = email.lower().strip()
             if phone:
                 formatted_phone = AuthUtils.format_phone(phone)
                 query["phone"] = formatted_phone
@@ -290,8 +449,9 @@ class AuthService:
             )
 
     async def send_otp_email(self, email: str, otp: str, customer_name: str = "Valued Customer") -> Dict[str, Any]:
-        """Send OTP via email - returns standardized response"""
+        """Send OTP via email - improved version based on test_email.py"""
         try:
+            # Check email configuration first
             if not self.email_user or not self.email_password:
                 logger.error("Email credentials not configured")
                 return AuthUtils.create_error_response(
@@ -300,36 +460,74 @@ class AuthService:
                     technical_error=True
                 )
             
+            logger.info(f"Attempting to send OTP email to: {AuthUtils.mask_email(email)}")
+            
+            # Create email message
             msg = MIMEMultipart()
             msg['From'] = self.email_user
             msg['To'] = email
             msg['Subject'] = "Swiss Bank - Authentication Code"
             
+            # Load and render template
             template_content = self.load_email_template("otp_email.html")
+            
+            # Render template using the improved method
             html_body = self.render_template(
                 template_content,
                 customer_name=customer_name,
                 otp=otp,
-                expiry_minutes=self.otp_expiry_minutes
+                expiry_minutes=str(self.otp_expiry_minutes)
             )
             
             msg.attach(MIMEText(html_body, 'html'))
             
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.email_user, self.email_password)
-                server.send_message(msg)
-            
-            return AuthUtils.create_success_response(
-                "OTP email sent successfully",
-                data={
-                    "sent_to": AuthUtils.mask_email(email),
-                    "method": "email"
-                }
-            )
+            # Send email with detailed logging
+            try:
+                logger.info(f"Connecting to SMTP server: {self.smtp_server}:{self.smtp_port}")
+                with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                    logger.info("Starting TLS...")
+                    server.starttls()
+                    logger.info("Logging in to SMTP server...")
+                    server.login(self.email_user, self.email_password)
+                    logger.info("Sending email...")
+                    server.send_message(msg)
+                    logger.info("Email sent successfully!")
+                
+                return AuthUtils.create_success_response(
+                    "OTP email sent successfully",
+                    data={
+                        "sent_to": AuthUtils.mask_email(email),
+                        "method": "email"
+                    }
+                )
+                
+            except smtplib.SMTPAuthenticationError as e:
+                logger.error(f"SMTP authentication failed: {e}")
+                return AuthUtils.create_error_response(
+                    "Email authentication failed",
+                    "SEND_FAILED",
+                    retry_allowed=True,
+                    technical_error=True
+                )
+            except smtplib.SMTPConnectError as e:
+                logger.error(f"SMTP connection failed: {e}")
+                return AuthUtils.create_error_response(
+                    "Email server connection failed",
+                    "SEND_FAILED",
+                    retry_allowed=True,
+                    technical_error=True
+                )
+            except smtplib.SMTPException as e:
+                logger.error(f"SMTP error: {e}")
+                return AuthUtils.create_error_response(
+                    "Email sending failed",
+                    "SEND_FAILED",
+                    retry_allowed=True,
+                    technical_error=True
+                )
             
         except Exception as e:
-            logger.error(f"Error sending OTP email: {e}")
+            logger.error(f"Unexpected error sending OTP email: {e}")
             return AuthUtils.create_error_response(
                 "Failed to send OTP email",
                 "SEND_FAILED",
@@ -616,3 +814,18 @@ class AuthService:
             "expiry_minutes": self.otp_expiry_minutes,
             "max_attempts": self.max_otp_attempts
         }
+    
+    async def cleanup_and_disconnect(self):
+        """Cleanup resources and disconnect"""
+        try:
+            if self.db_service:
+                await self.db_service.disconnect()
+                self._db_connected = False
+            
+            if self.redis_client:
+                self.redis_client.close()
+                self.redis_client = None
+            
+            logger.info("AuthService disconnected successfully")
+        except Exception as e:
+            logger.error(f"Error during AuthService cleanup: {e}")

@@ -3,7 +3,7 @@
 MongoDB Customer Testing Script for Swiss Bank API
 This script will:
 1. Connect to MongoDB and list existing customers
-2. Test authentication flow with real customer data
+2. Test authentication flow with real customer data (automatically uses 4th customer)
 3. Provide a complete end-to-end test
 
 Requirements: pip install pymongo requests
@@ -21,6 +21,26 @@ BASE_URL = "http://127.0.0.1:8001"
 MONGODB_URL = "mongodb://localhost:27017"
 DATABASE_NAME = "swiss_bank"
 CUSTOMERS_COLLECTION = "customers"
+
+def test_api_endpoints():
+    """Test basic API endpoints"""
+    print("\n🚀 Testing API endpoints...")
+    
+    # Test health
+    try:
+        response = requests.get(f"{BASE_URL}/health")
+        print(f"✅ Health check: {response.status_code}")
+        print(f"   Response: {response.json()}")
+    except Exception as e:
+        print(f"❌ Health check failed: {e}")
+    
+    # Test root
+    try:
+        response = requests.get(f"{BASE_URL}/")
+        print(f"✅ Root endpoint: {response.status_code}")
+        print(f"   Response: {response.json()}")
+    except Exception as e:
+        print(f"❌ Root endpoint failed: {e}")
 
 def connect_to_mongodb():
     """Connect to MongoDB and return the customers collection"""
@@ -46,9 +66,8 @@ def list_customers(collection):
             "customer_id": 1,
             "email": 1,
             "phone": 1,
-            "first_name": 1,
-            "last_name": 1
-        }).limit(10))
+            "name": 1,
+        }).limit(10))  # Get more customers to ensure we have at least 4
         
         print(f"\n📋 Found {collection.count_documents({})} customers in database")
         print("First 10 customers:")
@@ -56,7 +75,7 @@ def list_customers(collection):
         
         for i, customer in enumerate(customers, 1):
             print(f"{i}. ID: {customer.get('customer_id', 'N/A')}")
-            print(f"   Name: {customer.get('first_name', 'N/A')} {customer.get('last_name', 'N/A')}")
+            print(f"   Name: {customer.get('name', 'N/A')}")
             print(f"   Email: {customer.get('email', 'N/A')}")
             print(f"   Phone: {customer.get('phone', 'N/A')}")
             print()
@@ -157,26 +176,6 @@ def test_auth_with_real_customer(customer_email, customer_phone=None):
         print(f"❌ Authentication test failed: {e}")
         return None
 
-def test_api_endpoints():
-    """Test basic API endpoints"""
-    print("\n🚀 Testing API endpoints...")
-    
-    # Test health
-    try:
-        response = requests.get(f"{BASE_URL}/health")
-        print(f"✅ Health check: {response.status_code}")
-        print(f"   Response: {response.json()}")
-    except Exception as e:
-        print(f"❌ Health check failed: {e}")
-    
-    # Test root
-    try:
-        response = requests.get(f"{BASE_URL}/")
-        print(f"✅ Root endpoint: {response.status_code}")
-        print(f"   Response: {response.json()}")
-    except Exception as e:
-        print(f"❌ Root endpoint failed: {e}")
-
 def main():
     """Main testing function"""
     print("🏦 Swiss Bank API Testing Script")
@@ -187,30 +186,60 @@ def main():
     
     # Connect to MongoDB
     collection = connect_to_mongodb()
-    if collection is None:  # Fixed: Use 'is None' instead of 'not collection'
+    if collection is None: 
         print("❌ Cannot continue without MongoDB connection")
         return
     
     # List customers
     customers = list_customers(collection)
-    if not customers:  # This is fine since customers is a list
+    if not customers:
         print("❌ No customers found in database")
         print("💡 Make sure you have customer data in MongoDB")
         return
     
-    # Test authentication with first customer
-    if customers:
-        first_customer = customers[0]
-        customer_email = first_customer.get('email')
-        customer_phone = first_customer.get('phone')
+    # Automatically test with 4th customer
+    if len(customers) >= 4:
+        fourth_customer = customers[3]  # Index 3 for 4th customer
+        customer_email = fourth_customer.get('email')
+        customer_phone = fourth_customer.get('phone')
+        
+        print(f"\n🎯 Automatically testing with 4th customer:")
+        print(f"   Name: {fourth_customer.get('name', 'N/A')}")
+        print(f"   Email: {customer_email}")
+        print(f"   Phone: {customer_phone}")
         
         if customer_email and customer_email != "N/A":
             test_auth_with_real_customer(customer_email, customer_phone)
         else:
-            print("❌ First customer doesn't have a valid email")
+            print("❌ 4th customer doesn't have a valid email")
+            print("💡 Falling back to first customer with valid email...")
+            
+            # Fallback to first customer with valid email
+            for i, customer in enumerate(customers):
+                email = customer.get('email')
+                if email and email != "N/A":
+                    print(f"   Using customer #{i+1} instead: {email}")
+                    test_auth_with_real_customer(email, customer.get('phone'))
+                    break
+            else:
+                print("❌ No customers found with valid email addresses")
+    else:
+        print(f"❌ Only {len(customers)} customers found, need at least 4")
+        print("💡 Testing with first available customer...")
+        
+        # Test with first customer if less than 4 customers
+        if customers:
+            first_customer = customers[0]
+            customer_email = first_customer.get('email')
+            customer_phone = first_customer.get('phone')
+            
+            if customer_email and customer_email != "N/A":
+                test_auth_with_real_customer(customer_email, customer_phone)
+            else:
+                print("❌ First customer doesn't have a valid email")
     
     # Interactive mode - let user choose customer
-    print(f"\n🎯 Interactive Testing")
+    print(f"\n🎯 Interactive Testing Mode")
     print("Enter the number of the customer you want to test with (1-10), or 'q' to quit:")
     
     while True:
@@ -240,4 +269,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
     

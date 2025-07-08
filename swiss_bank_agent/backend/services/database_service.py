@@ -344,7 +344,7 @@ class DatabaseService:
             return customer
         except Exception as e:
             logger.error(f"Error finding customer: {e}")
-            return None
+            raise e
     
     async def save_investigation_report(self, report: Dict[str, Any]) -> str:
         """Save investigation report"""

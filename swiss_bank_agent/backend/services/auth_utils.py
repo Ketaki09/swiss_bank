@@ -2,6 +2,11 @@
 import re
 from typing import Dict, Any
 from datetime import datetime
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class AuthUtils:
     """Shared utilities for authentication system"""
@@ -92,10 +97,17 @@ class AuthUtils:
     def is_session_expired(session_data: Dict[str, Any], timeout_minutes: int) -> bool:
         """Check if session is expired"""
         try:
-            last_activity = session_data["last_activity"]
-            if isinstance(last_activity, str):
-                last_activity = datetime.fromisoformat(last_activity)
+            last_activity = session_data.get("last_activity")
+            if not last_activity:
+                return True
             
+            if isinstance(last_activity, str):
+                try:
+                    last_activity = datetime.fromisoformat(last_activity)
+                except ValueError:
+                    logger.warning("Invalid datetime format: , {last_activity}")
+                    return True
+                
             from datetime import timedelta
             timeout_duration = timedelta(minutes=timeout_minutes)
             return datetime.now() > (last_activity + timeout_duration)
@@ -112,7 +124,11 @@ class AuthUtils:
                 return 0
             
             if isinstance(locked_at, str):
-                locked_at = datetime.fromisoformat(locked_at)
+                try:
+                    locked_at = datetime.fromisoformat(locked_at)
+                except ValueError:
+                    logger.warning(f"Invalid datetime format for locked_at: {locked_at}")
+                    return 0
             
             from datetime import timedelta
             lockout_duration = timedelta(minutes=lockout_minutes)
@@ -125,4 +141,5 @@ class AuthUtils:
             return max(0, int(remaining.total_seconds() / 60))
         except Exception:
             return 0
+
 

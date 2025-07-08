@@ -9,6 +9,7 @@ swiss_bank/                                    # Project root folder
 │   │   ├── services/                         # Business logic services
 │   │   │   ├── auth_controller.py            # Authentication sesion manager with user attempt limits
 │   │   │   ├── auth_service.py               # authentication service over mail / phone number
+│   │   │   ├── auth_utils.py                 # authentication common utilities between service and controller file
 │   │   │   ├── database_service.py
 │   │   │   ├── email_service.py              # Updated email service
 │   │   │   ├── investigation_service.py
