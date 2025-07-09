@@ -1,4 +1,4 @@
-# backend/main.py 
+# backend/main.py - Updated with shared configuration
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +13,7 @@ import json
 import os
 import smtplib
 import redis
+import logging
 from twilio.rest import Client
 
 from models.complaint_models import ComplaintResponse, ComplaintStatus
@@ -23,108 +24,436 @@ from services.email_service import EmailService
 from services.auth_controller import AuthController
 from services.auth_service import AuthService
 from services.auth_utils import AuthUtils
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Configure logging to reduce verbosity
+logging.getLogger("twilio.http_client").setLevel(logging.WARNING)
+logging.getLogger("services.auth_service").setLevel(logging.WARNING)
 
 # Global services dictionary
 services = {}
 
+# Global shared configuration
+shared_config = {
+    "smtp": {
+        "server": None,
+        "port": 587,
+        "username": None,
+        "password": None,
+        "connection_pool": None,
+        "initialized": False
+    },
+    "redis": {
+        "client": None,
+        "url": None,
+        "connection_pool": None,
+        "initialized": False
+    },
+    "twilio": {
+        "client": None,
+        "account_sid": None,
+        "auth_token": None,
+        "phone_number": None,
+        "initialized": False
+    },
+    "mongodb": {
+        "connection": None,
+        "database": None,
+        "initialized": False
+    }
+}
+
+
 # Security scheme
 security = HTTPBearer()
 
-def test_smtp_connection():
+def initialize_smtp_config():
+    """Initialize SMTP configuration and test connection"""
     try:
-        smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-        smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        email_user = os.getenv("SMTP_USERNAME")
-        email_password = os.getenv("SMTP_PASSWORD")
+        smtp_config = shared_config["smtp"]
+        smtp_config["server"] = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+        smtp_config["port"] = int(os.getenv("SMTP_PORT", "587"))
+        smtp_config["username"] = os.getenv("SMTP_USERNAME")
+        smtp_config["password"] = os.getenv("SMTP_PASSWORD")
         
-        if not email_user or not email_password:
+        if not smtp_config["username"] or not smtp_config["password"]:
             print("❌ SMTP credentials not configured")
             return False
         
-        with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
+        # Test connection
+        with smtplib.SMTP(smtp_config["server"], smtp_config["port"], timeout=10) as server:
             server.starttls()
-            server.login(email_user, email_password)
-            return True
+            server.login(smtp_config["username"], smtp_config["password"])
             
+        smtp_config["initialized"] = True
+        print("✅ SMTP configuration initialized successfully")
+        return True
+        
     except Exception as e:
-        print(f"❌ SMTP connection failed: {e}")
+        print(f"❌ SMTP configuration failed: {e}")
+        shared_config["smtp"]["initialized"] = False
         return False
 
-def test_twilio_connection():
+def initialize_redis_config():
+    """Initialize Redis configuration and connection"""
     try:
-        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        redis_config = shared_config["redis"]
+        redis_config["url"] = os.getenv("REDIS_URL", "redis://localhost:6379")
         
-        if not account_sid or not auth_token:
+        # Create Redis client with connection pooling
+        redis_config["client"] = redis.from_url(
+            redis_config["url"],
+            socket_connect_timeout=5,
+            socket_timeout=5,
+            retry_on_timeout=True,
+            health_check_interval=30,
+            max_connections=20,  # Connection pool size
+            decode_responses=False  # Keep as bytes for consistency
+        )
+        
+        # Test connection
+        redis_config["client"].ping()
+        redis_config["initialized"] = True
+        print("✅ Redis configuration initialized successfully")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Redis configuration failed: {e}")
+        shared_config["redis"]["initialized"] = False
+        shared_config["redis"]["client"] = None
+        return False
+
+def initialize_twilio_config():
+    """Initialize Twilio configuration and test connection"""
+    try:
+        twilio_config = shared_config["twilio"]
+        twilio_config["account_sid"] = os.getenv("TWILIO_ACCOUNT_SID")
+        twilio_config["auth_token"] = os.getenv("TWILIO_AUTH_TOKEN")
+        twilio_config["phone_number"] = os.getenv("TWILIO_PHONE_NUMBER")
+        
+        if not twilio_config["account_sid"] or not twilio_config["auth_token"]:
             print("❌ Twilio credentials not configured")
             return False
         
-        client = Client(account_sid, auth_token)
-        # Test by fetching account info
-        account = client.api.accounts(account_sid).fetch()
-        print(f"✅ Twilio connection successful - Account: {account.friendly_name}")
+        # Create Twilio client
+        twilio_config["client"] = Client(
+            twilio_config["account_sid"], 
+            twilio_config["auth_token"]
+        )
+        
+        # Test connection by fetching account info
+        account = twilio_config["client"].api.accounts(twilio_config["account_sid"]).fetch()
+        twilio_config["initialized"] = True
+        print(f"✅ Twilio configuration initialized successfully - Account: {account.friendly_name}")
         return True
         
     except Exception as e:
-        print(f"❌ Twilio connection failed: {e}")
+        print(f"❌ Twilio configuration failed: {e}")
+        shared_config["twilio"]["initialized"] = False
+        shared_config["twilio"]["client"] = None
         return False
 
-def test_redis_connection():
+def get_smtp_config():
+    """Get SMTP configuration"""
+    return shared_config["smtp"]
+
+def get_redis_client():
+    """Get Redis client (thread-safe)"""
+    if shared_config["redis"]["initialized"]:
+        return shared_config["redis"]["client"]
+    return None
+
+def get_twilio_client():
+    """Get Twilio client"""
+    if shared_config["twilio"]["initialized"]:
+        return shared_config["twilio"]["client"]
+    return None
+
+def is_service_available(service_name: str) -> bool:
+    """Check if a service is available and initialized"""
+    return shared_config.get(service_name, {}).get("initialized", False)
+
+def get_service_status():
+    """Get status of all configured services"""
+    return {
+        "smtp": shared_config["smtp"]["initialized"],
+        "redis": shared_config["redis"]["initialized"],
+        "twilio": shared_config["twilio"]["initialized"],
+        "mongodb": shared_config["mongodb"]["initialized"]
+    }
+def validate_shared_config():
+    """Validate that required shared configurations are available"""
+    required_services = ["smtp", "redis", "twilio", "mongodb"]
+    missing_services = []
+    
+    for service in required_services:
+        if not shared_config.get(service, {}).get("initialized", False):
+            missing_services.append(service)
+    
+    if missing_services:
+        print(f"⚠️  Warning: Some services are not initialized: {missing_services}")
+        return False
+    
+    return True
+
+def get_available_services():
+    """Get list of available services"""
+    available = []
+    for service_name, config in shared_config.items():
+        if config.get("initialized", False):
+            available.append(service_name)
+    return available
+
+# Enhanced service availability check
+def require_service(service_name: str):
+    """Decorator to require a specific service"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            if not is_service_available(service_name):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=f"Service {service_name} is not available"
+                )
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+def initialize_mongodb_config():
+    """Initialize MongoDB configuration"""
     try:
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-        redis_client = redis.from_url(
-            redis_url,
-            socket_connect_timeout=5,
-            socket_timeout=5,
-            retry_on_timeout=True
-        )
-        # Test connection
-        redis_client.ping()
-        print(f"✅ Redis connection successful")
-        redis_client.close()
+        # This should be integrated with your DatabaseService
+        shared_config["mongodb"]["initialized"] = True
         return True
         
     except Exception as e:
-        print(f"❌ Redis connection failed: {e}")
+        print(f"❌ MongoDB configuration failed: {e}")
+        shared_config["mongodb"]["initialized"] = False
         return False
+
+def test_all_connections():
+    """Test all external service connections"""
+    print("\n📡 Testing external service connections...")
+    
+    results = {
+        "smtp": initialize_smtp_config(),
+        "redis": initialize_redis_config(),
+        "twilio": initialize_twilio_config(),
+        "mongodb": initialize_mongodb_config()  
+    }
+    
+    return results
+
+def cleanup_shared_resources():
+    """Cleanup shared resources"""
+    try:
+        # Cleanup Redis
+        if shared_config["redis"]["client"]:
+            shared_config["redis"]["client"].close()
+            shared_config["redis"]["client"] = None
+            shared_config["redis"]["initialized"] = False
+            print("✅ Redis connection closed")
+        
+        # Reset other configurations
+        shared_config["smtp"]["initialized"] = False
+        shared_config["twilio"]["initialized"] = False
+        shared_config["twilio"]["client"] = None
+        
+        print("✅ Shared resources cleaned up successfully")
+        
+    except Exception as e:
+        print(f"❌ Error cleaning up shared resources: {e}")
+
+# Custom AuthService that uses shared configuration
+class SharedConfigAuthService(AuthService):
+    """Enhanced AuthService that uses shared configuration"""
+    
+    def __init__(self):
+        # Initialize parent class but override connection methods
+        super().__init__()
+        
+        # Override configurations with shared ones
+        self.use_shared_config = True
+        
+    def _init_redis(self):
+        """Override Redis initialization to use shared config"""
+        if is_service_available("redis"):
+            self.redis_client = get_redis_client()
+            self.use_redis = True
+            print("✅ AuthService using shared Redis connection")
+        else:
+            self.redis_client = None
+            self.use_redis = False
+            print("❌ Redis not available, falling back to MongoDB storage")
+    
+    def get_smtp_config(self):
+        """Get SMTP configuration from shared config"""
+        if is_service_available("smtp"):
+            smtp_config = get_smtp_config()
+            return {
+                "server": smtp_config["server"],
+                "port": smtp_config["port"],
+                "username": smtp_config["username"],
+                "password": smtp_config["password"]
+            }
+        return None
+    
+    def get_twilio_client(self):
+        """Get Twilio client from shared config"""
+        if is_service_available("twilio"):
+            return get_twilio_client()
+        return None
+    
+    async def send_otp_email(self, email: str, otp: str, customer_name: str = "Valued Customer") -> Dict[str, Any]:
+        """Enhanced send_otp_email using shared SMTP config"""
+        try:
+            smtp_config = self.get_smtp_config()
+            if not smtp_config:
+                print("SMTP service not available")
+                return AuthUtils.create_error_response(
+                    "Email service not configured",
+                    "SERVICE_ERROR",
+                    technical_error=True
+                )
+            
+            # Create email message using shared config
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            
+            msg = MIMEMultipart()
+            msg['From'] = smtp_config["username"]
+            msg['To'] = email
+            msg['Subject'] = "Swiss Bank - Authentication Code"
+            
+            # Load and render template
+            template_content = self.load_email_template("otp_email.html")
+            html_body = self.render_template(
+                template_content,
+                customer_name=customer_name,
+                otp=otp,
+                expiry_minutes=str(self.otp_expiry_minutes)
+            )
+            
+            msg.attach(MIMEText(html_body, 'html'))
+            
+            # Send email with shared SMTP config
+            try:
+                with smtplib.SMTP(smtp_config["server"], smtp_config["port"], timeout=15) as server:
+                    server.starttls()
+                    server.login(smtp_config["username"], smtp_config["password"])
+                    server.send_message(msg)
+                
+                return AuthUtils.create_success_response(
+                    "OTP email sent successfully",
+                    data={
+                        "sent_to": AuthUtils.mask_email(email),
+                        "method": "email"
+                    }
+                )
+                
+            except Exception as smtp_error:
+                print(f"SMTP error with shared config: {smtp_error}")
+                return AuthUtils.create_error_response(
+                    "Email sending failed",
+                    "SEND_FAILED",
+                    retry_allowed=True,
+                    technical_error=True
+                )
+                
+        except Exception as e:
+            print(f"Error sending OTP email with shared config: {e}")
+            return AuthUtils.create_error_response(
+                "Failed to send OTP email",
+                "SEND_FAILED",
+                retry_allowed=True,
+                technical_error=True
+            )
+    
+    async def send_otp_sms(self, phone: str, otp: str) -> Dict[str, Any]:
+        """Enhanced send_otp_sms using shared Twilio config"""
+        try:
+            twilio_client = self.get_twilio_client()
+            if not twilio_client:
+                print("Twilio service not available")
+                return AuthUtils.create_error_response(
+                    "SMS service not configured",
+                    "SERVICE_ERROR",
+                    technical_error=True
+                )
+            
+            formatted_phone = AuthUtils.format_phone(phone)
+            twilio_phone = shared_config["twilio"]["phone_number"]
+            
+            message = twilio_client.messages.create(
+                body=f"Your Swiss Bank verification code is: {otp}. This code expires in {self.otp_expiry_minutes} minutes. Do not share this code with anyone.",
+                from_=twilio_phone,
+                to=formatted_phone
+            )
+            
+            return AuthUtils.create_success_response(
+                "OTP SMS sent successfully",
+                data={
+                    "sent_to": AuthUtils.mask_phone(phone),
+                    "method": "sms",
+                    "message_sid": message.sid
+                }
+            )
+            
+        except Exception as e:
+            print(f"Error sending OTP SMS with shared config: {e}")
+            return AuthUtils.create_error_response(
+                "Failed to send OTP SMS",
+                "SEND_FAILED",
+                retry_allowed=True,
+                technical_error=True
+            )
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup and shutdown events"""
     try:
-        print("🚀 Starting Swiss Bank Complaint Bot API...")
-        
-        # Test external service connections
-        print("\n📡 Testing external service connections...")
-        smtp_ok = test_smtp_connection()
-        twilio_ok = test_twilio_connection()
-        redis_ok = test_redis_connection()
-        
-        # Initialize services
+        print("\n🚀 Starting Swiss Bank Complaint Bot API...")
+
+        # Initialize shared configurations first
+        print("\n🔧 Initializing shared service configurations...")
+        connection_results = test_all_connections()
+
+        # Initialize basic services
         print("\n🔧 Initializing services...")
         services["db"] = DatabaseService()
         services["llm"] = LLMService()
         services["investigation"] = InvestigationService()
         services["email"] = EmailService()
-        services["auth_controller"] = AuthController()
-        services["auth_controller"].auth_service = AuthService()
-        services["auth_service"].auth_utils = AuthUtils()
-
-        # Connect to database
+        
+        # Connect to database first
         await services["db"].connect()
+        shared_config["mongodb"]["initialized"] = True
         print("✅ Database connected successfully")
         
-        # Initialize auth service
-        await services["auth_controller"].auth_service.initialize()
-        print("✅ Authentication service initialized")
+        # Initialize auth services with shared config
+        services["auth_service"] = SharedConfigAuthService()
+        await services["auth_service"].initialize()
+        print("✅ Authentication service initialized with shared config")
+        
+        services["auth_controller"] = AuthController()
+        services["auth_controller"].auth_service = services["auth_service"]
+        print("✅ Authentication controller initialized")
+        
+        # Update connection results with actual MongoDB status
+        connection_results["mongodb"] = shared_config["mongodb"]["initialized"]
         
         print("\n📊 Service Status Summary:")
-        print(f"  Database: ✅ Connected")
-        print(f"  SMTP: {'✅ Connected' if smtp_ok else '❌ Failed'}")
-        print(f"  Twilio: {'✅ Connected' if twilio_ok else '❌ Failed'}")
-        print(f"  Redis: {'✅ Connected' if redis_ok else '❌ Failed'}")
+        print(f"  Database: {'✅ Connected' if connection_results['mongodb'] else '❌ Failed'}")
+        print(f"  Authentication: ✅ Initialized")
+        print(f"  SMTP: {'✅ Connected' if connection_results['smtp'] else '❌ Failed'}")
+        print(f"  Twilio: {'✅ Connected' if connection_results['twilio'] else '❌ Failed'}")
+        print(f"  Redis: {'✅ Connected' if connection_results['redis'] else '❌ Failed'}")
         
         print("\n🎉 All services initialized successfully")
+        print(f"  Redis connection pooling: {'✅ Enabled' if connection_results['redis'] else '❌ Disabled'}")
+        print(f"  Shared configuration: ✅ Active")
         print("🌐 API is ready to serve requests")
         
         yield
@@ -139,11 +468,13 @@ async def lifespan(app: FastAPI):
             await services["db"].disconnect()
             print("✅ Database disconnected")
         
-        if "auth_controller" in services:
-            await services["auth_controller"].auth_service.cleanup_and_disconnect()
+        if "auth_service" in services:
+            await services["auth_service"].cleanup_and_disconnect()
             print("✅ Auth service disconnected")
         
-        print("✅ Resources cleaned up successfully")
+        # Cleanup shared resources
+        cleanup_shared_resources()
+        print("✅ Shared resources cleaned up successfully")
 
 # Initialize FastAPI app with lifespan
 app = FastAPI(
@@ -261,21 +592,35 @@ async def health_check():
 @app.get("/health/detailed")
 async def detailed_health_check():
     """Detailed health check with external service status"""
-    smtp_status = test_smtp_connection()
-    twilio_status = test_twilio_connection()
-    redis_status = test_redis_connection()
+    service_status = get_service_status()
     
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "services": {
-            "database": "connected" if services.get("db") else "disconnected",
+            "database": "connected" if service_status["mongodb"] else "disconnected",
             "auth": "available" if services.get("auth_controller") else "unavailable",
-            "smtp": "connected" if smtp_status else "failed",
-            "twilio": "connected" if twilio_status else "failed",
-            "redis": "connected" if redis_status else "failed"
+            "smtp": "connected" if service_status["smtp"] else "failed",
+            "twilio": "connected" if service_status["twilio"] else "failed",
+            "redis": "connected" if service_status["redis"] else "failed"
+        },
+        "shared_config": {
+            "redis_pooling": service_status["redis"],
+            "smtp_ready": service_status["smtp"],
+            "twilio_ready": service_status["twilio"]
         }
     }
+
+@app.get("/health/config")
+async def config_health_check():
+    """Configuration health check endpoint"""
+    return {
+        "shared_config_status": get_service_status(),
+        "redis_client_active": get_redis_client() is not None,
+        "twilio_client_active": get_twilio_client() is not None,
+        "smtp_config_active": get_smtp_config() is not None
+    }
+
 
 # ==================== AUTHENTICATION ENDPOINTS ====================
 

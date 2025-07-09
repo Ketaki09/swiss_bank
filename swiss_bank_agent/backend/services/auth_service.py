@@ -1,11 +1,11 @@
-# backend/services/auth_service.py - Fixed version
+# backend/services/auth_service.py - Updated with shared configuration support
 import random
 import string
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable
 import os
 import json
 from pathlib import Path
@@ -14,32 +14,43 @@ from .database_service import DatabaseService
 from .auth_utils import AuthUtils
 import redis
 import logging
+from dotenv import load_dotenv
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Load environment variables
+load_dotenv()
+
 
 class AuthService:
-    def __init__(self):
+    def __init__(self, shared_config_getter: Optional[Callable] = None):
+        """
+        Initialize AuthService with optional shared configuration support
+        
+        Args:
+            shared_config_getter: Optional callable that returns shared configuration
+        """
         self.db_service = DatabaseService()
         self._db_connected = False
         
-        # Email configuration
-        self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        self.email_user = os.getenv("SMTP_USERNAME")
-        self.email_password = os.getenv("SMTP_PASSWORD")
+        # Shared configuration support
+        self.shared_config_getter = shared_config_getter
+        self.use_shared_config = shared_config_getter is not None
         
-        # Twilio configuration for SMS
-        self.twilio_account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        self.twilio_auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-        self.twilio_phone_number = os.getenv("TWILIO_PHONE_NUMBER")
+        # Email configuration - with shared config fallback
+        if self.use_shared_config:
+            self.smtp_server = None  # Will be set via shared config
+            self.smtp_port = None
+            self.email_user = None
+            self.email_password = None
         
-        # Redis configuration with fallback
+            # Twilio configuration - with shared config fallback
+            self.twilio_account_sid = None  
+            self.twilio_auth_token = None
+            self.twilio_phone_number = None
+
+        # Redis configuration with shared config support
         self.redis_client = None
         self.use_redis = False
-        self._init_redis()
-        
+
         # Template path
         self.template_path = Path(__file__).parent.parent / "templates" / "emails"
         
@@ -62,16 +73,115 @@ class AuthService:
             "SERVICE_ERROR", "SEND_FAILED", "RESEND_FAILED"
         }
 
+    def _get_shared_config(self) -> Optional[Dict[str, Any]]:
+        """Get shared configuration if available"""
+        if self.shared_config_getter:
+            try:
+                return self.shared_config_getter()
+            except Exception as e:
+                print(f"Error getting shared config: {e}")
+                return None
+        return None
+
+    def _is_service_available(self, service_name: str) -> bool:
+        """Check if a shared service is available"""
+        if not self.use_shared_config:
+            return True  # Assume available for legacy mode
+        
+        shared_config = self._get_shared_config()
+        if not shared_config:
+            return False
+        
+        return shared_config.get(service_name, {}).get("initialized", False)
+
+    def _get_smtp_config(self) -> Optional[Dict[str, Any]]:
+        """Get SMTP configuration from shared config or environment"""
+        if self.use_shared_config:
+            shared_config = self._get_shared_config()
+            if shared_config and self._is_service_available("smtp"):
+                smtp_config = shared_config["smtp"]
+                return {
+                    "server": smtp_config["server"],
+                    "port": smtp_config["port"],
+                    "username": smtp_config["username"],
+                    "password": smtp_config["password"]
+                }
+            return None
+        else:
+            # Fallback to instance variables
+            if self.email_user and self.email_password:
+                return {
+                    "server": self.smtp_server,
+                    "port": self.smtp_port,
+                    "username": self.email_user,
+                    "password": self.email_password
+                }
+            return None
+
+    def _get_redis_client(self):
+        """Get Redis client from shared config or instance"""
+        if self.use_shared_config:
+            shared_config = self._get_shared_config()
+            if shared_config and self._is_service_available("redis"):
+                return shared_config["redis"]["client"]
+            return None
+        else:
+            return self.redis_client
+
+    def _get_twilio_client(self):
+        """Get Twilio client from shared config or create new one"""
+        if self.use_shared_config:
+            shared_config = self._get_shared_config()
+            if shared_config and self._is_service_available("twilio"):
+                return shared_config["twilio"]["client"]
+            return None
+        else:
+            # Create client from instance variables
+            if self.twilio_account_sid and self.twilio_auth_token:
+                return Client(self.twilio_account_sid, self.twilio_auth_token)
+            return None
+
+    def _get_twilio_phone_number(self) -> Optional[str]:
+        """Get Twilio phone number from shared config or instance"""
+        if self.use_shared_config:
+            shared_config = self._get_shared_config()
+            if shared_config and self._is_service_available("twilio"):
+                return shared_config["twilio"]["phone_number"]
+            return None
+        else:
+            return self.twilio_phone_number
+
     async def initialize(self):
         """Initialize the AuthService - must be called before using other methods"""
         try:
             await self.db_service.connect()
             self._db_connected = True
-            logger.info("AuthService initialized successfully")
+            
+            # Initialize Redis if using shared config
+            if self.use_shared_config:
+                self._init_redis_from_shared_config()
+            
         except Exception as e:
-            logger.error(f"Failed to initialize AuthService: {e}")
             self._db_connected = False
+            print(f"Failed to connect to the database: {e}")
             raise e
+
+    def _init_redis_from_shared_config(self):
+        """Initialize Redis connection from shared configuration"""
+        try:
+            redis_client = self._get_redis_client()
+            if redis_client:
+                self.redis_client = redis_client
+                self.use_redis = True
+                print("✅ AuthService using shared Redis connection")
+            else:
+                self.redis_client = None
+                self.use_redis = False
+                print("❌ Redis not available from shared config, falling back to MongoDB storage")
+        except Exception as e:
+            print(f"Error initializing Redis from shared config: {e}")
+            self.redis_client = None
+            self.use_redis = False
 
     async def ensure_db_connection(self):
         """Ensure database connection is established"""
@@ -80,12 +190,14 @@ class AuthService:
                 await self.db_service.connect()
                 self._db_connected = True
             except Exception as e:
-                logger.error(f"Failed to establish database connection: {e}")
+                print(f"Failed to establish database connection: {e}")
                 raise ConnectionError("Database connection failed")
 
-
     def _init_redis(self):
-        """Initialize Redis connection with error handling"""
+        """Initialize Redis connection with error handling (legacy method)"""
+        if self.use_shared_config:
+            return
+        
         try:
             redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
             self.redis_client = redis.from_url(
@@ -98,9 +210,8 @@ class AuthService:
             # Test connection
             self.redis_client.ping()
             self.use_redis = True
-            logger.info("Redis connection established successfully")
         except Exception as e:
-            logger.warning(f"Redis connection failed: {e}. Falling back to MongoDB storage")
+            print(f"Redis connection failed: {e}. Falling back to MongoDB storage")
             self.redis_client = None
             self.use_redis = False
 
@@ -115,16 +226,19 @@ class AuthService:
             
             serialized_data = json.dumps(data, default=datetime_serializer)
             
-            if self.use_redis and self.redis_client:
+            # Try Redis first (with shared config support)
+            redis_client = self._get_redis_client()
+            if redis_client and (self.use_redis or self.use_shared_config):
                 try:
-                    self.redis_client.setex(key, expiry_seconds, serialized_data)
+                    redis_client.setex(key, expiry_seconds, serialized_data)
                     return True
                 except Exception as e:
-                    logger.warning(f"Redis storage failed: {e}. Falling back to MongoDB")
-                    self.use_redis = False
+                    print(f"Redis storage failed: {e}. Falling back to MongoDB")
+                    if not self.use_shared_config:
+                        self.use_redis = False
             
             # MongoDB fallback
-            await self.ensure_db_connection()  # Ensure DB connection is established
+            await self.ensure_db_connection()
             expiry_time = datetime.now() + timedelta(seconds=expiry_seconds)
             await self.db_service.store_temp_data({
                 "_id": key,
@@ -135,8 +249,7 @@ class AuthService:
             return True
             
         except Exception as e:
-            logger.error(f"Both Redis and MongoDB storage failed: {e}")
-            # Final fallback to memory (not recommended for production)
+            print(f"Both Redis and MongoDB storage failed: {e}")
             self.memory_storage[key] = {
                 "data": data,
                 "expires_at": datetime.now() + timedelta(seconds=expiry_seconds)
@@ -146,9 +259,11 @@ class AuthService:
     async def _retrieve_data(self, key: str) -> Optional[Dict[str, Any]]:
         """Retrieve data with Redis primary, MongoDB fallback"""
         try:
-            if self.use_redis and self.redis_client:
+            # Try Redis first (with shared config support)
+            redis_client = self._get_redis_client()
+            if redis_client and (self.use_redis or self.use_shared_config):
                 try:
-                    value = self.redis_client.get(key)
+                    value = redis_client.get(key)
                     if value:
                         # Decode and parse JSON
                         if isinstance(value, bytes):
@@ -156,17 +271,18 @@ class AuthService:
                         elif isinstance(value, str):
                             data = json.loads(value)
                         else:
-                            logger.warning(f"Unexpected Redis value type: {type(value)}")
+                            print(f"Unexpected Redis value type: {type(value)}")
                             return None
                         
                         # Convert ISO format strings back to datetime objects
                         return self._deserialize_datetime_fields(data)
                 except Exception as e:
-                    logger.warning(f"Redis retrieval failed: {e}. Trying MongoDB")
-                    self.use_redis = False
+                    print(f"Redis retrieval failed: {e}. Trying MongoDB")
+                    if not self.use_shared_config:
+                        self.use_redis = False
             
             # MongoDB fallback
-            await self.ensure_db_connection()  
+            await self.ensure_db_connection()
             temp_data = await self.db_service.get_temp_data(key)
             if temp_data:
                 # Check if expired
@@ -186,25 +302,27 @@ class AuthService:
                 if isinstance(stored["data"], str):
                     data = json.loads(stored["data"])
                     return self._deserialize_datetime_fields(data)
-                return stored["data"]  
+                return stored["data"]
             
             return None
             
         except Exception as e:
-            logger.error(f"Data retrieval failed: {e}")
+            print(f"Data retrieval failed: {e}")
             return None
 
     async def _delete_data(self, key: str):
         """Delete data from all storage systems"""
         try:
-            if self.use_redis and self.redis_client:
+            # Try Redis first (with shared config support)
+            redis_client = self._get_redis_client()
+            if redis_client and (self.use_redis or self.use_shared_config):
                 try:
-                    self.redis_client.delete(key)
+                    redis_client.delete(key)
                 except Exception as e:
-                    logger.warning(f"Redis deletion failed: {e}")
+                    print(f"Redis deletion failed: {e}")
             
             # MongoDB cleanup
-            await self.ensure_db_connection() 
+            await self.ensure_db_connection()
             await self.db_service.delete_temp_data(key)
             
             # Memory cleanup
@@ -212,7 +330,7 @@ class AuthService:
                 del self.memory_storage[key]
                 
         except Exception as e:
-            logger.error(f"Data deletion failed: {e}")
+            print(f"Data deletion failed: {e}")
 
     def _deserialize_datetime_fields(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Convert ISO format datetime strings back to datetime objects"""
@@ -239,87 +357,13 @@ class AuthService:
             template_file = self.template_path / template_name
             with open(template_file, 'r', encoding='utf-8') as file:
                 content = file.read()
-                logger.info(f"Successfully loaded template: {template_name}")
                 return content
         except FileNotFoundError:
-            logger.warning(f"Template {template_name} not found at {template_file}")
-            logger.info("Using fallback template")
-            return self._get_fallback_template()
+            print(f"Template {template_name} not found at {template_file}")
+            return self._get_simple_fallback_template()
         except Exception as e:
-            logger.error(f"Error loading template {template_name}: {e}")
-            logger.info("Using fallback template")
-            return self._get_fallback_template()
-
-    def _get_fallback_template(self) -> str:
-        """Improved fallback template matching test_email.py style"""
-        return """<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Swiss Bank - Authentication Code</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background-color: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .header {
-            background-color: #1a472a;
-            color: white;
-            padding: 20px;
-            text-align: center;
-        }
-        .content {
-            padding: 30px;
-        }
-        .otp {
-            font-size: 32px;
-            font-weight: bold;
-            color: #1a472a;
-            text-align: center;
-            padding: 20px;
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            margin: 20px 0;
-            letter-spacing: 3px;
-        }
-        .footer {
-            background-color: #f8f9fa;
-            padding: 20px;
-            font-size: 14px;
-            color: #6c757d;
-            text-align: center;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Swiss Bank</h1>
-            <h2>Authentication Code</h2>
-        </div>
-        <div class="content">
-            <p>Dear {customer_name},</p>
-            <p>Your verification code is:</p>
-            <div class="otp">{otp}</div>
-            <p>This code will expire in <strong>{expiry_minutes} minutes</strong>.</p>
-            <p><strong>Important:</strong> Do not share this code with anyone. Swiss Bank will never ask for this code over the phone or email.</p>
-        </div>
-        <div class="footer">
-            <p><strong>Best regards,</strong><br>Swiss Bank Security Team</p>
-            <p>If you did not request this code, please contact us immediately.</p>
-        </div>
-    </div>
-</body>
-</html>"""
+            print("Using fallback template")
+            return self._get_simple_fallback_template()
 
     def _get_simple_fallback_template(self) -> str:
         """Simple fallback template as last resort"""
@@ -350,17 +394,16 @@ class AuthService:
             
             # Check if all placeholders were replaced
             if "{" in rendered_content and "}" in rendered_content:
-                logger.warning("Some template placeholders may not have been replaced")
-            
+                print("Some template placeholders may not have been replaced")
             return rendered_content
             
         except Exception as e:
-            logger.error(f"Error rendering template with replace method: {e}")
+            print(f"Error rendering template with replace method: {e}")
             try:
                 # Fallback to format method
                 return template_content.format(**kwargs)
             except Exception as format_error:
-                logger.error(f"Error rendering template with format method: {format_error}")
+                print(f"Error rendering template with format method: {format_error}")
                 # Return simple fallback
                 return self._get_simple_fallback_template().replace("{customer_name}", str(kwargs.get("customer_name", "Valued Customer"))).replace("{otp}", str(kwargs.get("otp", "000000"))).replace("{expiry_minutes}", str(kwargs.get("expiry_minutes", "5")))
 
@@ -405,7 +448,7 @@ class AuthService:
             )
                 
         except Exception as e:
-            logger.error(f"Error checking customer existence: {e}")
+            print(f"Error checking customer existence: {e}")
             return AuthUtils.create_error_response(
                 "Customer lookup failed",
                 "DATABASE_ERROR",
@@ -440,7 +483,7 @@ class AuthService:
             )
             
         except Exception as e:
-            logger.error(f"Error generating OTP: {e}")
+            print(f"Error generating OTP: {e}")
             return AuthUtils.create_error_response(
                 "OTP generation failed",
                 "SERVICE_ERROR",
@@ -449,22 +492,20 @@ class AuthService:
             )
 
     async def send_otp_email(self, email: str, otp: str, customer_name: str = "Valued Customer") -> Dict[str, Any]:
-        """Send OTP via email - improved version based on test_email.py"""
         try:
-            # Check email configuration first
-            if not self.email_user or not self.email_password:
-                logger.error("Email credentials not configured")
+            # Get SMTP configuration from shared config or environment
+            smtp_config = self._get_smtp_config()
+            if not smtp_config:
+                print("Email credentials not configured")
                 return AuthUtils.create_error_response(
                     "Email service not configured",
                     "SERVICE_ERROR",
                     technical_error=True
                 )
             
-            logger.info(f"Attempting to send OTP email to: {AuthUtils.mask_email(email)}")
-            
             # Create email message
             msg = MIMEMultipart()
-            msg['From'] = self.email_user
+            msg['From'] = smtp_config["username"]
             msg['To'] = email
             msg['Subject'] = "Swiss Bank - Authentication Code"
             
@@ -481,17 +522,12 @@ class AuthService:
             
             msg.attach(MIMEText(html_body, 'html'))
             
-            # Send email with detailed logging
+            # Send email with shared config
             try:
-                logger.info(f"Connecting to SMTP server: {self.smtp_server}:{self.smtp_port}")
-                with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                    logger.info("Starting TLS...")
+                with smtplib.SMTP(smtp_config["server"], smtp_config["port"], timeout=15) as server:
                     server.starttls()
-                    logger.info("Logging in to SMTP server...")
-                    server.login(self.email_user, self.email_password)
-                    logger.info("Sending email...")
+                    server.login(smtp_config["username"], smtp_config["password"])
                     server.send_message(msg)
-                    logger.info("Email sent successfully!")
                 
                 return AuthUtils.create_success_response(
                     "OTP email sent successfully",
@@ -502,7 +538,7 @@ class AuthService:
                 )
                 
             except smtplib.SMTPAuthenticationError as e:
-                logger.error(f"SMTP authentication failed: {e}")
+                print(f"SMTP authentication failed: {e}")
                 return AuthUtils.create_error_response(
                     "Email authentication failed",
                     "SEND_FAILED",
@@ -510,7 +546,7 @@ class AuthService:
                     technical_error=True
                 )
             except smtplib.SMTPConnectError as e:
-                logger.error(f"SMTP connection failed: {e}")
+                print(f"SMTP connection failed: {e}")
                 return AuthUtils.create_error_response(
                     "Email server connection failed",
                     "SEND_FAILED",
@@ -518,7 +554,7 @@ class AuthService:
                     technical_error=True
                 )
             except smtplib.SMTPException as e:
-                logger.error(f"SMTP error: {e}")
+                print(f"SMTP error: {e}")
                 return AuthUtils.create_error_response(
                     "Email sending failed",
                     "SEND_FAILED",
@@ -527,7 +563,7 @@ class AuthService:
                 )
             
         except Exception as e:
-            logger.error(f"Unexpected error sending OTP email: {e}")
+            print(f"Unexpected error sending OTP email: {e}")
             return AuthUtils.create_error_response(
                 "Failed to send OTP email",
                 "SEND_FAILED",
@@ -536,26 +572,27 @@ class AuthService:
             )
 
     async def send_otp_sms(self, phone: str, otp: str) -> Dict[str, Any]:
-        """Send OTP via SMS - returns standardized response"""
+        """Send OTP via SMS - updated with shared config support"""
         try:
-            if not self.twilio_account_sid or not self.twilio_auth_token:
-                logger.error("Twilio credentials not configured")
+            # Get Twilio client and phone number from shared config or environment
+            twilio_client = self._get_twilio_client()
+            twilio_phone = self._get_twilio_phone_number()
+            
+            if not twilio_client or not twilio_phone:
+                print("Twilio credentials not configured")
                 return AuthUtils.create_error_response(
                     "SMS service not configured",
                     "SERVICE_ERROR",
                     technical_error=True
                 )
             
-            client = Client(self.twilio_account_sid, self.twilio_auth_token)
             formatted_phone = AuthUtils.format_phone(phone)
             
-            message = client.messages.create(
+            message = twilio_client.messages.create(
                 body=f"Your Swiss Bank verification code is: {otp}. This code expires in {self.otp_expiry_minutes} minutes. Do not share this code with anyone.",
-                from_=self.twilio_phone_number,
+                from_=twilio_phone,
                 to=formatted_phone
             )
-            
-            logger.info(f"SMS sent successfully. SID: {message.sid}")
             
             return AuthUtils.create_success_response(
                 "OTP SMS sent successfully",
@@ -567,7 +604,7 @@ class AuthService:
             )
             
         except Exception as e:
-            logger.error(f"Error sending OTP SMS: {e}")
+            print(f"Error sending OTP SMS: {e}")
             return AuthUtils.create_error_response(
                 "Failed to send OTP SMS",
                 "SEND_FAILED",
@@ -644,7 +681,7 @@ class AuthService:
                 )
                 
         except Exception as e:
-            logger.error(f"Error verifying OTP: {e}")
+            print(f"Error verifying OTP: {e}")
             return AuthUtils.create_error_response(
                 "Verification service temporarily unavailable. Please try again.",
                 "SERVICE_ERROR",
@@ -703,7 +740,7 @@ class AuthService:
                 )
                 
         except Exception as e:
-            logger.error(f"Error resending OTP: {e}")
+            print(f"Error resending OTP: {e}")
             return AuthUtils.create_error_response(
                 "Resend service temporarily unavailable. Please try again.",
                 "SERVICE_ERROR",
@@ -730,19 +767,18 @@ class AuthService:
             
             # Clean up MongoDB temp data
             cutoff_time = current_time - timedelta(minutes=session_timeout_minutes)
-            # Fix: Pass cutoff_time as a keyword argument
             mongo_cleaned = await self.db_service.cleanup_expired_temp_data()
             cleaned_count += mongo_cleaned
             
-            logger.info(f"Cleaned up {cleaned_count} expired sessions")
+            print(f"Cleaned up {cleaned_count} expired sessions")
             return cleaned_count
             
         except Exception as e:
-            logger.error(f"Error during session cleanup: {e}")
+            print(f"Error during session cleanup: {e}")
             return 0
 
     async def get_auth_status(self, auth_key: str) -> Dict[str, Any]:
-        """Get authentication status - returns standardized response"""
+        """Get authentication status"""
         try:
             stored_data = await self._retrieve_data(auth_key)
             if not stored_data:
@@ -773,32 +809,13 @@ class AuthService:
             )
             
         except Exception as e:
-            logger.error(f"Error getting auth status: {e}")
+            print(f"Error getting auth status: {e}")
             return AuthUtils.create_error_response(
                 "Unable to retrieve authentication status",
                 "SERVICE_ERROR",
                 retry_allowed=True,
                 technical_error=True
             )
-
-    # Legacy method for backward compatibility - kept minimal
-    async def initiate_authentication(self, email: Optional[str] = None, phone: Optional[str] = None, 
-                                    session_id: Optional[str] = None, ip_address: Optional[str] = None,
-                                    preferred_otp_method: Optional[str] = None) -> Dict[str, Any]:
-        """Legacy method - use controller methods instead"""
-        logger.warning("Using deprecated initiate_authentication method. Use AuthController instead.")
-        
-        # Basic validation
-        if not email and not phone:
-            return AuthUtils.create_error_response(
-                "Please provide either email or phone number",
-                "INVALID_INPUT"
-            )
-        
-        return AuthUtils.create_error_response(
-            "Please use the new authentication flow through AuthController",
-            "DEPRECATED_METHOD"
-        )
 
     def get_contact_lockout_info(self) -> Dict[str, Any]:
         """Get contact lockout configuration info"""
@@ -822,10 +839,12 @@ class AuthService:
                 await self.db_service.disconnect()
                 self._db_connected = False
             
-            if self.redis_client:
+            if self.redis_client and not self.use_shared_config:
                 self.redis_client.close()
                 self.redis_client = None
             
-            logger.info("AuthService disconnected successfully")
+            print("AuthService disconnected successfully")
         except Exception as e:
-            logger.error(f"Error during AuthService cleanup: {e}")
+            print(f"Error during AuthService cleanup: {e}")
+
+
