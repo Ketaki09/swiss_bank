@@ -136,19 +136,47 @@ class OTPServiceDebugger:
         print("\n🏥 API SERVICE HEALTH CHECK")
         print("=" * 50)
         
-        endpoint = "/health"
-        health_status = False
+        # Define endpoints to test with their expected behavior
+        endpoints = [
+            {"path": "/health", "description": "Main health check", "priority": "high"},
+            {"path": "/", "description": "Root endpoint", "priority": "low"},
+            {"path": "/favicon.ico", "description": "Favicon", "priority": "low"},
+            {"path": "/health/detailed", "description": "Detailed health check", "priority": "medium"}
+        ]
         
-        try:
-            response = requests.get(f"{BASE_URL}{endpoint}", timeout=5)
-            status_symbol = "✅" if response.status_code == 200 else "⚠️"
-            print(f"{status_symbol} {endpoint}: {response.status_code}")
-            
-            if response.status_code == 200:
-                health_status = True
-                        
-        except requests.exceptions.RequestException as e:
-            print(f"❌ {endpoint}: {e}")
+        health_status = False
+        passed_endpoints = 0
+        total_endpoints = len(endpoints)
+        
+        for endpoint in endpoints:
+            try:
+                response = requests.get(f"{BASE_URL}{endpoint['path']}", timeout=5)
+                
+                # Different success criteria for different endpoints
+                if endpoint['path'] == '/favicon.ico':
+                    # Favicon might return 404 or 200, both are acceptable
+                    success = response.status_code in [200, 404]
+                    status_symbol = "✅" if success else "⚠️"
+                else:
+                    # Other endpoints should return 200
+                    success = response.status_code == 200
+                    status_symbol = "✅" if success else "⚠️"
+                
+                priority_indicator = f"[{endpoint['priority'].upper()}]"
+                print(f"{status_symbol} {endpoint['path']} {priority_indicator}: {response.status_code} - {endpoint['description']}")
+                
+                if success:
+                    passed_endpoints += 1
+                    
+                # Main health endpoint determines overall health status
+                if endpoint['path'] == "/health" and success:
+                    health_status = True
+                    
+            except requests.exceptions.RequestException as e:
+                priority_indicator = f"[{endpoint['priority'].upper()}]"
+                print(f"❌ {endpoint['path']} {priority_indicator}: {e}")
+        
+        print(f"\nEndpoint Summary: {passed_endpoints}/{total_endpoints} endpoints accessible")
         
         return health_status
     
@@ -179,6 +207,227 @@ class OTPServiceDebugger:
         except Exception as e:
             print(f"❌ Database error: {e}")
             return False, None
+    
+    def test_verify_otp_endpoint(self, session_id):
+        """Test OTP verification endpoint with various scenarios"""
+        print("\n🔐 OTP VERIFICATION ENDPOINT TEST")
+        print("=" * 50)
+        
+        test_results = {
+            'invalid_otp': False,
+            'missing_session': False,
+            'invalid_session': False,
+            'endpoint_availability': False
+        }
+        
+        try:
+            # Test 1: Invalid OTP
+            print("Test 1: Invalid OTP verification")
+            invalid_otp_payload = {
+                "session_id": session_id,
+                "otp": "000000"  # Invalid OTP
+            }
+            
+            try:
+                response = requests.post(
+                    f"{BASE_URL}/api/auth/verify-otp",
+                    data=invalid_otp_payload,
+                    timeout=10
+                )
+                
+                print(f"  Status: {response.status_code}")
+                if response.status_code in [400, 401, 422]:
+                    response_data = response.json()
+                    print(f"  Expected failure response: {response_data.get('message', 'No message')}")
+                    test_results['invalid_otp'] = True
+                elif response.status_code == 404:
+                    print("  ❌ Endpoint not found!")
+                else:
+                    print(f"  ⚠️  Unexpected status code: {response.status_code}")
+                    
+            except Exception as e:
+                print(f"  ❌ Error testing invalid OTP: {e}")
+            
+            # Test 2: Missing session ID
+            print("\nTest 2: Missing session ID")
+            missing_session_payload = {
+                "otp": "123456"
+            }
+            
+            try:
+                response = requests.post(
+                    f"{BASE_URL}/api/auth/verify-otp",
+                    data=missing_session_payload,
+                    timeout=10
+                )
+                
+                print(f"  Status: {response.status_code}")
+                if response.status_code in [400, 422]:
+                    response_data = response.json()
+                    print(f"  Expected validation error: {response_data.get('message', 'No message')}")
+                    test_results['missing_session'] = True
+                else:
+                    print(f"  ⚠️  Unexpected status code: {response.status_code}")
+                    
+            except Exception as e:
+                print(f"  ❌ Error testing missing session: {e}")
+            
+            # Test 3: Invalid session ID
+            print("\nTest 3: Invalid session ID")
+            invalid_session_payload = {
+                "session_id": "invalid_session_id_12345",
+                "otp": "123456"
+            }
+            
+            try:
+                response = requests.post(
+                    f"{BASE_URL}/api/auth/verify-otp",
+                    data=invalid_session_payload,
+                    timeout=10
+                )
+                
+                print(f"  Status: {response.status_code}")
+                if response.status_code in [400, 401, 404]:
+                    response_data = response.json()
+                    print(f"  Expected session error: {response_data.get('message', 'No message')}")
+                    test_results['invalid_session'] = True
+                else:
+                    print(f"  ⚠️  Unexpected status code: {response.status_code}")
+                    
+            except Exception as e:
+                print(f"  ❌ Error testing invalid session: {e}")
+            
+            # Test 4: Endpoint availability
+            test_results['endpoint_availability'] = any([
+                test_results['invalid_otp'],
+                test_results['missing_session'],
+                test_results['invalid_session']
+            ])
+            
+            if test_results['endpoint_availability']:
+                print("\n✅ Verify OTP endpoint is available and responding")
+            else:
+                print("\n❌ Verify OTP endpoint may not be working properly")
+                
+        except Exception as e:
+            print(f"❌ Verify OTP test failed: {e}")
+            
+        return test_results['endpoint_availability']
+    
+    def test_resend_otp_endpoint(self, session_id):
+        """Test OTP resend endpoint with various scenarios"""
+        print("\n🔄 OTP RESEND ENDPOINT TEST")
+        print("=" * 50)
+        
+        test_results = {
+            'valid_session': False,
+            'invalid_session': False,
+            'missing_session': False,
+            'endpoint_availability': False
+        }
+        
+        try:
+            # Test 1: Valid session ID
+            print("Test 1: Valid session resend")
+            valid_payload = {
+                "session_id": session_id
+            }
+            
+            try:
+                start_time = time.time()
+                response = requests.post(
+                    f"{BASE_URL}/api/auth/resend-otp",
+                    data=valid_payload,
+                    timeout=30
+                )
+                end_time = time.time()
+                
+                duration = end_time - start_time
+                print(f"  Status: {response.status_code} (took {duration:.2f}s)")
+                
+                if response.status_code == 200:
+                    response_data = response.json()
+                    if response_data.get('success'):
+                        print("  ✅ OTP resent successfully!")
+                        print(f"     Message: {response_data.get('message')}")
+                        test_results['valid_session'] = True
+                    else:
+                        print(f"  ⚠️  Resend failed: {response_data.get('message')}")
+                        # Still counts as endpoint working if it returns proper error
+                        test_results['valid_session'] = True
+                elif response.status_code == 404:
+                    print("  ❌ Endpoint not found!")
+                else:
+                    print(f"  ⚠️  Unexpected status: {response.status_code}")
+                    print(f"     Response: {response.text[:200]}...")
+                    
+            except requests.exceptions.Timeout:
+                print("  ❌ Request timeout - server may be overloaded")
+            except Exception as e:
+                print(f"  ❌ Error testing valid session: {e}")
+            
+            # Test 2: Invalid session ID
+            print("\nTest 2: Invalid session resend")
+            invalid_payload = {
+                "session_id": "invalid_session_id_12345"
+            }
+            
+            try:
+                response = requests.post(
+                    f"{BASE_URL}/api/auth/resend-otp",
+                    data=invalid_payload,
+                    timeout=10
+                )
+                
+                print(f"  Status: {response.status_code}")
+                if response.status_code in [400, 401, 404]:
+                    response_data = response.json()
+                    print(f"  Expected session error: {response_data.get('message', 'No message')}")
+                    test_results['invalid_session'] = True
+                else:
+                    print(f"  ⚠️  Unexpected status code: {response.status_code}")
+                    
+            except Exception as e:
+                print(f"  ❌ Error testing invalid session: {e}")
+            
+            # Test 3: Missing session ID
+            print("\nTest 3: Missing session ID")
+            missing_payload = {}
+            
+            try:
+                response = requests.post(
+                    f"{BASE_URL}/api/auth/resend-otp",
+                    data=missing_payload,
+                    timeout=10
+                )
+                
+                print(f"  Status: {response.status_code}")
+                if response.status_code in [400, 422]:
+                    response_data = response.json()
+                    print(f"  Expected validation error: {response_data.get('message', 'No message')}")
+                    test_results['missing_session'] = True
+                else:
+                    print(f"  ⚠️  Unexpected status code: {response.status_code}")
+                    
+            except Exception as e:
+                print(f"  ❌ Error testing missing session: {e}")
+            
+            # Test 4: Endpoint availability
+            test_results['endpoint_availability'] = any([
+                test_results['valid_session'],
+                test_results['invalid_session'],
+                test_results['missing_session']
+            ])
+            
+            if test_results['endpoint_availability']:
+                print("\n✅ Resend OTP endpoint is available and responding")
+            else:
+                print("\n❌ Resend OTP endpoint may not be working properly")
+                
+        except Exception as e:
+            print(f"❌ Resend OTP test failed: {e}")
+            
+        return test_results['endpoint_availability']
     
     def test_otp_functionality(self, session_id):
         """Test OTP functionality with real session"""
@@ -227,7 +476,13 @@ class OTPServiceDebugger:
                         print("✅ OTP sent successfully!")
                         print(f"   Message: {otp_data.get('message')}")
                         print(f"   OTP Method: {otp_data.get('otp_method')}")
-                        return True
+                        
+                        # Test additional OTP endpoints
+                        verify_result = self.test_verify_otp_endpoint(session_id)
+                        resend_result = self.test_resend_otp_endpoint(session_id)
+                        
+                        # Overall OTP functionality passes if initiate works and other endpoints are available
+                        return verify_result and resend_result
                     else:
                         print("❌ OTP initiation failed!")
                         print(f"   Error: {otp_data.get('message')}")
@@ -256,7 +511,7 @@ class OTPServiceDebugger:
         except Exception as e:
             print(f"❌ Test failed: {e}")
             return False
-    
+        
     def run_comprehensive_debug(self):
         """Run comprehensive debugging suite"""
         print("🔍 COMPREHENSIVE OTP DEBUG SUITE")
