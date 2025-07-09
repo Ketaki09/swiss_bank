@@ -11,7 +11,9 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 import json
 import os
-import logging
+import smtplib
+import redis
+from twilio.rest import Client
 
 from models.complaint_models import ComplaintResponse, ComplaintStatus
 from services.database_service import DatabaseService
@@ -19,10 +21,8 @@ from services.llm_service import LLMService
 from services.investigation_service import InvestigationService
 from services.email_service import EmailService
 from services.auth_controller import AuthController
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from services.auth_service import AuthService
+from services.auth_utils import AuthUtils
 
 # Global services dictionary
 services = {}
@@ -30,34 +30,120 @@ services = {}
 # Security scheme
 security = HTTPBearer()
 
+def test_smtp_connection():
+    try:
+        smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        email_user = os.getenv("SMTP_USERNAME")
+        email_password = os.getenv("SMTP_PASSWORD")
+        
+        if not email_user or not email_password:
+            print("❌ SMTP credentials not configured")
+            return False
+        
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
+            server.starttls()
+            server.login(email_user, email_password)
+            return True
+            
+    except Exception as e:
+        print(f"❌ SMTP connection failed: {e}")
+        return False
+
+def test_twilio_connection():
+    try:
+        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        
+        if not account_sid or not auth_token:
+            print("❌ Twilio credentials not configured")
+            return False
+        
+        client = Client(account_sid, auth_token)
+        # Test by fetching account info
+        account = client.api.accounts(account_sid).fetch()
+        print(f"✅ Twilio connection successful - Account: {account.friendly_name}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Twilio connection failed: {e}")
+        return False
+
+def test_redis_connection():
+    try:
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        redis_client = redis.from_url(
+            redis_url,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+            retry_on_timeout=True
+        )
+        # Test connection
+        redis_client.ping()
+        print(f"✅ Redis connection successful")
+        redis_client.close()
+        return True
+        
+    except Exception as e:
+        print(f"❌ Redis connection failed: {e}")
+        return False
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup and shutdown events"""
     try:
+        print("🚀 Starting Swiss Bank Complaint Bot API...")
+        
+        # Test external service connections
+        print("\n📡 Testing external service connections...")
+        smtp_ok = test_smtp_connection()
+        twilio_ok = test_twilio_connection()
+        redis_ok = test_redis_connection()
+        
         # Initialize services
+        print("\n🔧 Initializing services...")
         services["db"] = DatabaseService()
         services["llm"] = LLMService()
         services["investigation"] = InvestigationService()
         services["email"] = EmailService()
         services["auth_controller"] = AuthController()
-        
+        services["auth_controller"].auth_service = AuthService()
+        services["auth_service"].auth_utils = AuthUtils()
+
         # Connect to database
         await services["db"].connect()
-        logger.info("✅ Database connected successfully")
+        print("✅ Database connected successfully")
         
-        # Initialize other services if needed
-        logger.info("✅ All services initialized successfully")
+        # Initialize auth service
+        await services["auth_controller"].auth_service.initialize()
+        print("✅ Authentication service initialized")
+        
+        print("\n📊 Service Status Summary:")
+        print(f"  Database: ✅ Connected")
+        print(f"  SMTP: {'✅ Connected' if smtp_ok else '❌ Failed'}")
+        print(f"  Twilio: {'✅ Connected' if twilio_ok else '❌ Failed'}")
+        print(f"  Redis: {'✅ Connected' if redis_ok else '❌ Failed'}")
+        
+        print("\n🎉 All services initialized successfully")
+        print("🌐 API is ready to serve requests")
         
         yield
         
     except Exception as e:
-        logger.error(f"❌ Error during startup: {e}")
+        print(f"❌ Error during startup: {e}")
         raise
     finally:
         # Cleanup resources
+        print("\n🧹 Cleaning up resources...")
         if "db" in services:
             await services["db"].disconnect()
-        logger.info("✅ Resources cleaned up successfully")
+            print("✅ Database disconnected")
+        
+        if "auth_controller" in services:
+            await services["auth_controller"].auth_service.cleanup_and_disconnect()
+            print("✅ Auth service disconnected")
+        
+        print("✅ Resources cleaned up successfully")
 
 # Initialize FastAPI app with lifespan
 app = FastAPI(
@@ -129,7 +215,7 @@ async def get_current_user(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Authentication error: {e}")
+        print(f"❌ Authentication error: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication failed",
@@ -172,6 +258,25 @@ async def health_check():
         }
     }
 
+@app.get("/health/detailed")
+async def detailed_health_check():
+    """Detailed health check with external service status"""
+    smtp_status = test_smtp_connection()
+    twilio_status = test_twilio_connection()
+    redis_status = test_redis_connection()
+    
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "services": {
+            "database": "connected" if services.get("db") else "disconnected",
+            "auth": "available" if services.get("auth_controller") else "unavailable",
+            "smtp": "connected" if smtp_status else "failed",
+            "twilio": "connected" if twilio_status else "failed",
+            "redis": "connected" if redis_status else "failed"
+        }
+    }
+
 # ==================== AUTHENTICATION ENDPOINTS ====================
 
 @app.post("/api/auth/session")
@@ -185,7 +290,7 @@ async def create_auth_session(
         result = await auth_controller.create_auth_session(ip_address, user_agent)
         return result
     except Exception as e:
-        logger.error(f"Error creating auth session: {e}")
+        print(f"❌ Error creating auth session: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create authentication session"
@@ -206,7 +311,7 @@ async def verify_contact(
         )
         return result
     except Exception as e:
-        logger.error(f"Error verifying contact: {e}")
+        print(f"❌ Error verifying contact: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to verify contact details"
@@ -222,7 +327,7 @@ async def initiate_otp(
         result = await auth_controller.initiate_otp_verification(session_id)
         return result
     except Exception as e:
-        logger.error(f"Error initiating OTP: {e}")
+        print(f"❌ Error initiating OTP: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to initiate OTP verification"
@@ -239,7 +344,7 @@ async def verify_otp(
         result = await auth_controller.verify_otp(session_id, otp)
         return result
     except Exception as e:
-        logger.error(f"Error verifying OTP: {e}")
+        print(f"❌ Error verifying OTP: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to verify OTP"
@@ -255,7 +360,7 @@ async def resend_otp(
         result = await auth_controller.resend_otp(session_id)
         return result
     except Exception as e:
-        logger.error(f"Error resending OTP: {e}")
+        print(f"❌ Error resending OTP: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to resend OTP"
@@ -271,7 +376,7 @@ async def get_session_status(
         result = await auth_controller.get_session_status(session_id)
         return result
     except Exception as e:
-        logger.error(f"Error getting session status: {e}")
+        print(f"❌ Error getting session status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get session status"
@@ -336,6 +441,8 @@ async def submit_complaint(
             processed_complaint["theme"]
         )
         
+        print(f"✅ Complaint {complaint_id} submitted successfully")
+        
         return ComplaintResponse(
             complaint_id=complaint_id,
             status=ComplaintStatus.RECEIVED,  
@@ -346,7 +453,7 @@ async def submit_complaint(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error processing complaint: {e}")
+        print(f"❌ Error processing complaint: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing complaint: {str(e)}"
@@ -379,7 +486,7 @@ async def get_complaint(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting complaint: {e}")
+        print(f"❌ Error getting complaint: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve complaint"
@@ -407,7 +514,7 @@ async def get_customer_history(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting customer history: {e}")
+        print(f"❌ Error getting customer history: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve customer history"
@@ -455,7 +562,7 @@ async def chat_message(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error processing chat message: {e}")
+        print(f"❌ Error processing chat message: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing message: {str(e)}"
@@ -478,7 +585,7 @@ async def get_dashboard_complaints(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting dashboard complaints: {e}")
+        print(f"❌ Error getting dashboard complaints: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve dashboard complaints"
@@ -502,7 +609,7 @@ async def update_complaint_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating complaint status: {e}")
+        print(f"❌ Error updating complaint status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update complaint status"
@@ -541,7 +648,7 @@ async def http_exception_handler(request, exc):
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
     """General exception handler"""
-    logger.error(f"Unhandled exception: {exc}")
+    print(f"❌ Unhandled exception: {exc}")
     return JSONResponse(
         status_code=500,
         content={
