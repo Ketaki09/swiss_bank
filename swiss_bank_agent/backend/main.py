@@ -26,6 +26,10 @@ from services.auth_service import AuthService
 from services.auth_utils import AuthUtils
 from dotenv import load_dotenv
 
+# Create email message using shared config
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+            
 # Load environment variables
 load_dotenv()
 
@@ -272,7 +276,7 @@ class SharedConfigAuthService(AuthService):
     
     def __init__(self):
         # Initialize parent class but override connection methods
-        super().__init__()
+        super().__init__(shared_config_getter=lambda: shared_config)
         
         # Override configurations with shared ones
         self.use_shared_config = True
@@ -317,11 +321,7 @@ class SharedConfigAuthService(AuthService):
                     "SERVICE_ERROR",
                     technical_error=True
                 )
-            
-            # Create email message using shared config
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
-            
+        
             msg = MIMEMultipart()
             msg['From'] = smtp_config["username"]
             msg['To'] = email
@@ -508,6 +508,9 @@ def get_email_service() -> EmailService:
 def get_auth_controller() -> AuthController:
     return services["auth_controller"]
 
+def get_auth_service() -> SharedConfigAuthService:
+    return services["auth_service"]
+
 # Authentication dependency
 async def get_current_user(
     token: HTTPAuthorizationCredentials = Depends(security),
@@ -665,11 +668,11 @@ async def verify_contact(
 @app.post("/api/auth/initiate-otp")
 async def initiate_otp(
     session_id: str = Form(...),
-    auth_controller: AuthController = Depends(get_auth_controller)
+    auth_service: SharedConfigAuthService = Depends(get_auth_service)
 ):
     """Initiate OTP verification"""
     try:
-        result = await auth_controller.initiate_otp_verification(session_id)
+        result = await auth_service.initiate_otp_verification(session_id)
         return result
     except Exception as e:
         print(f"❌ Error initiating OTP: {e}")
@@ -700,10 +703,45 @@ async def resend_otp(
     session_id: str = Form(...),
     auth_controller: AuthController = Depends(get_auth_controller)
 ):
-    """Resend OTP code"""
     try:
         result = await auth_controller.resend_otp(session_id)
+        
+        # Check if the result indicates an error
+        if not result.get("success", True):
+            error_code = result.get("error_code")
+            
+            # Map error codes to appropriate HTTP status codes
+            if error_code in ["INVALID_SESSION", "SESSION_EXPIRED"]:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=result.get("message", "Invalid session")
+                )
+            elif error_code == "INVALID_STATE":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=result.get("message", "Invalid session state")
+                )
+            elif error_code == "OTP_NOT_INITIATED":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=result.get("message", "OTP not initiated")
+                )
+            elif error_code in ["SERVICE_ERROR", "RESEND_FAILED"]:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=result.get("message", "Service temporarily unavailable")
+                )
+            else:
+                # Generic error handling
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=result.get("message", "Request failed")
+                )
+        
         return result
+        
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Error resending OTP: {e}")
         raise HTTPException(

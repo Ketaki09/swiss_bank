@@ -41,16 +41,30 @@ class AuthService:
             self.smtp_port = None
             self.email_user = None
             self.email_password = None
+        else:
+            # Fallback to environment variables
+            self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+            self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
+            self.email_user = os.getenv("SMTP_USERNAME")
+            self.email_password = os.getenv("SMTP_PASSWORD")
         
-            # Twilio configuration - with shared config fallback
-            self.twilio_account_sid = None  
+        # Twilio configuration - with shared config fallback
+        if self.use_shared_config:
+            self.twilio_account_sid = None  # Will be set via shared config
             self.twilio_auth_token = None
             self.twilio_phone_number = None
-
+        else:
+            # Fallback to environment variables
+            self.twilio_account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+            self.twilio_auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+            self.twilio_phone_number = os.getenv("TWILIO_PHONE_NUMBER")
+        
         # Redis configuration with shared config support
         self.redis_client = None
         self.use_redis = False
-
+        if not self.use_shared_config:
+            self._init_redis()  # Only init if not using shared config
+        
         # Template path
         self.template_path = Path(__file__).parent.parent / "templates" / "emails"
         
@@ -157,10 +171,12 @@ class AuthService:
             await self.db_service.connect()
             self._db_connected = True
             
-            # Initialize Redis if using shared config
+            # Initialize Redis based on configuration mode
             if self.use_shared_config:
                 self._init_redis_from_shared_config()
-            
+            else:
+                self._init_redis()  # Legacy method
+                
         except Exception as e:
             self._db_connected = False
             print(f"Failed to connect to the database: {e}")
@@ -169,7 +185,24 @@ class AuthService:
     def _init_redis_from_shared_config(self):
         """Initialize Redis connection from shared configuration"""
         try:
-            redis_client = self._get_redis_client()
+            if not self.use_shared_config:
+                print("Not using shared config, skipping Redis initialization")
+                return
+                
+            shared_config = self._get_shared_config()
+            if not shared_config:
+                print("❌ Shared config not available")
+                self.redis_client = None
+                self.use_redis = False
+                return
+                
+            if not shared_config.get("redis", {}).get("initialized", False):
+                print("❌ Redis not initialized in shared config")
+                self.redis_client = None
+                self.use_redis = False
+                return
+                
+            redis_client = shared_config["redis"]["client"]
             if redis_client:
                 self.redis_client = redis_client
                 self.use_redis = True
@@ -177,7 +210,8 @@ class AuthService:
             else:
                 self.redis_client = None
                 self.use_redis = False
-                print("❌ Redis not available from shared config, falling back to MongoDB storage")
+                print("❌ Redis client not available from shared config")
+                
         except Exception as e:
             print(f"Error initializing Redis from shared config: {e}")
             self.redis_client = None
@@ -196,6 +230,7 @@ class AuthService:
     def _init_redis(self):
         """Initialize Redis connection with error handling (legacy method)"""
         if self.use_shared_config:
+            # Skip legacy Redis initialization if using shared config
             return
         
         try:
@@ -250,6 +285,7 @@ class AuthService:
             
         except Exception as e:
             print(f"Both Redis and MongoDB storage failed: {e}")
+            # Final fallback to memory (not recommended for production)
             self.memory_storage[key] = {
                 "data": data,
                 "expires_at": datetime.now() + timedelta(seconds=expiry_seconds)
@@ -264,7 +300,7 @@ class AuthService:
             if redis_client and (self.use_redis or self.use_shared_config):
                 try:
                     value = redis_client.get(key)
-                    if value:
+                    if value:  # Only process if value exists
                         # Decode and parse JSON
                         if isinstance(value, bytes):
                             data = json.loads(value.decode("utf-8"))
@@ -276,6 +312,7 @@ class AuthService:
                         
                         # Convert ISO format strings back to datetime objects
                         return self._deserialize_datetime_fields(data)
+
                 except Exception as e:
                     print(f"Redis retrieval failed: {e}. Trying MongoDB")
                     if not self.use_shared_config:
@@ -305,7 +342,7 @@ class AuthService:
                 return stored["data"]
             
             return None
-            
+        
         except Exception as e:
             print(f"Data retrieval failed: {e}")
             return None
@@ -455,7 +492,171 @@ class AuthService:
                 retry_allowed=True,
                 technical_error=True
             )
+    async def initiate_otp_verification(self, session_id: str) -> Dict[str, Any]:
+        """Initiate OTP verification - moved from auth_controller.py"""
+        try:
+            # Retrieve and validate session
+            session_key = f"auth_session:{session_id}"
+            session_data = await self._retrieve_data(session_key)
+            
+            if not session_data:
+                return AuthUtils.create_error_response(
+                    "Invalid or expired session. Please start again.",
+                    "INVALID_SESSION",
+                    action_required="restart"
+                )
+            
+            # Check if session is in correct state
+            if session_data.get("state") != "otp_verification":
+                return AuthUtils.create_error_response(
+                    "Invalid session state. Contact verification required first.",
+                    "INVALID_STATE"
+                )
+            
+            # Check if session is expired
+            if AuthUtils.is_session_expired(session_data, 30):  
+                await self._delete_data(session_key)
+                return AuthUtils.create_error_response(
+                    "Session expired. Please start again.",
+                    "SESSION_EXPIRED",
+                    action_required="restart"
+                )
+            
+            # Check if contact is verified
+            if not session_data.get("contact_verified"):
+                return AuthUtils.create_error_response(
+                    "Contact verification required before OTP generation.",
+                    "CONTACT_NOT_VERIFIED"
+                )
+            
+            # Generate and send OTP
+            otp_result = await self._generate_and_send_otp(session_data)
+            
+            if not otp_result.get("success"):
+                return otp_result
+            
+            # Update session with OTP data
+            session_data.update({
+                "otp_auth_key": otp_result["data"]["auth_key"],
+                "otp_initiated_at": datetime.now(),
+                "last_activity": datetime.now()
+            })
+            
+            # Store updated session
+            await self._store_data(session_key, session_data, 30 * 60)  # 30 minutes
+            
+            return AuthUtils.create_success_response(
+                otp_result["data"]["message"],
+                masked_contact=otp_result["data"]["masked_contact"],
+                expires_in=otp_result["data"]["expires_in"],
+                otp_method=session_data["preferred_otp_method"],
+                state="otp_verification"
+            )
+            
+        except Exception as e:
+            print(f"Error initiating OTP verification: {e}")
+            return AuthUtils.create_error_response(
+                "OTP service temporarily unavailable. Please try again.",
+                "SERVICE_ERROR",
+                retry_allowed=True,
+                technical_error=True
+            )
 
+    async def _generate_and_send_otp(self, session_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate and send OTP - moved from auth_controller.py"""
+        try:
+            preferred_method = session_data["preferred_otp_method"]
+            email = session_data["contact_email"]
+            phone = session_data["contact_phone"]
+
+            # Validate required data
+            if not preferred_method:
+                return AuthUtils.create_error_response(
+                    "OTP method not specified",
+                    "INVALID_STATE",
+                    retry_allowed=False
+                )
+            if preferred_method == 'email' and not email:
+                return AuthUtils.create_error_response(
+                    "Email address required for email OTP",
+                    "INVALID_STATE",
+                    retry_allowed=False
+                )
+            
+            if preferred_method == 'sms' and not phone:
+                return AuthUtils.create_error_response(
+                    "Phone number required for SMS OTP",
+                    "INVALID_STATE",
+                    retry_allowed=False
+                )
+
+            # Generate OTP
+            contact = email if preferred_method == 'email' else phone
+            otp_result = await self.generate_otp(contact, preferred_method)
+            
+            if not otp_result or not otp_result.get("success"):
+                return otp_result or AuthUtils.create_error_response(
+                    "OTP generation failed",
+                    "SERVICE_ERROR",
+                    retry_allowed=True,
+                    technical_error=True
+                )
+            
+            # Validate OTP result structure
+            if not otp_result.get("data") or not otp_result["data"].get("otp"):
+                return AuthUtils.create_error_response(
+                    "Invalid OTP generation response",
+                    "SERVICE_ERROR",
+                    retry_allowed=True,
+                    technical_error=True
+                )
+            
+            # Send OTP
+            if preferred_method == 'email':
+                send_result = await self.send_otp_email(
+                    email, 
+                    otp_result["data"]["otp"],
+                    session_data.get("customer_data", {}).get("name", "Valued Customer")
+                )
+            else:
+                send_result = await self.send_otp_sms(
+                    phone,
+                    otp_result["data"]["otp"]
+                )
+            
+            if not send_result or not send_result.get("success"):
+                return send_result or AuthUtils.create_error_response(
+                    "OTP sending failed",
+                    "SEND_FAILED",
+                    retry_allowed=True,
+                    technical_error=True
+                )
+            
+            # Prepare success response
+            masked_contact = (
+                AuthUtils.mask_email(email) if preferred_method == 'email' 
+                else AuthUtils.mask_phone(phone)
+            )
+            
+            return AuthUtils.create_success_response(
+                f"OTP sent successfully via {preferred_method}",
+                data={
+                    "auth_key": otp_result["data"]["auth_key"],
+                    "message": f"OTP sent to {masked_contact}",
+                    "masked_contact": masked_contact,
+                    "expires_in": otp_result["data"]["expires_in"]
+                }
+            )
+            
+        except Exception as e:
+            print(f"OTP generation/sending error: {e}")
+            return AuthUtils.create_error_response(
+                "Failed to generate or send OTP",
+                "SERVICE_ERROR",
+                retry_allowed=True,
+                technical_error=True
+            )
+        
     async def generate_otp(self, contact: str, method: str) -> Dict[str, Any]:
         """Generate OTP and create auth session - returns standardized response"""
         try:
@@ -492,6 +693,7 @@ class AuthService:
             )
 
     async def send_otp_email(self, email: str, otp: str, customer_name: str = "Valued Customer") -> Dict[str, Any]:
+        """Send OTP via email - updated with shared config support"""
         try:
             # Get SMTP configuration from shared config or environment
             smtp_config = self._get_smtp_config()
@@ -836,10 +1038,11 @@ class AuthService:
         """Cleanup resources and disconnect"""
         try:
             if self.db_service:
+                # Redis not available from shared config, falling back to MongoDB storage
                 await self.db_service.disconnect()
                 self._db_connected = False
             
-            if self.redis_client and not self.use_shared_config:
+            if self.redis_client:
                 self.redis_client.close()
                 self.redis_client = None
             

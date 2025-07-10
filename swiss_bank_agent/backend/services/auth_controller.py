@@ -29,7 +29,7 @@ class AuthController:
         
         # Technical error retry configuration
         self.max_technical_retries = 3
-        self.technical_retry_delay = 1  # seconds
+        self.technical_retry_delay = 1  
         self.technical_error_codes = {
             "SERVICE_ERROR", "DATABASE_ERROR", "NETWORK_ERROR", 
             "TIMEOUT_ERROR", "SEND_FAILED", "RESEND_FAILED"
@@ -43,8 +43,6 @@ class AuthController:
             "LOCKED": "locked",
             "EXPIRED": "expired"
         }
-
-
 
     def _is_technical_error(self, error_code: str) -> bool:
         """Check if error is technical (system) vs user input error"""
@@ -92,7 +90,7 @@ class AuthController:
         )
 
     async def _validate_session(self, session_id: str, 
-                               expected_state: Optional[str] = None) -> Tuple[bool, Dict[str, Any], Optional[Dict[str, Any]]]:
+                           expected_state: Optional[str] = None) -> Tuple[bool, Dict[str, Any], Optional[Dict[str, Any]]]:
         """
         Validate session and return (is_valid, session_data, error_response)
         Returns (False, {}, error_response) if invalid
@@ -100,12 +98,14 @@ class AuthController:
         """
         try:
             session_key = f"auth_session:{session_id}"
-            session_data = await self.auth_service._retrieve_data(session_key)
+            print(f"DEBUG: Validating session with key: {session_key}")
             
-            # Debug logging
-            logger.info(f"Session {session_id} retrieved successfully. State: {session_data.get('state', 'unknown')}")
+            # Add detailed logging for session retrieval
+            session_data = await self.auth_service._retrieve_data(session_key)
+            print(f"DEBUG: Retrieved session_data: {session_data}")
             
             if not session_data:
+                print(f"DEBUG: Session not found for key: {session_key}")
                 logger.warning(f"Session not found: {session_id}")
                 return False, {}, AuthUtils.create_error_response(
                     "Invalid or expired session. Please start again.",
@@ -113,9 +113,12 @@ class AuthController:
                     action_required="restart"
                 )
             
+            print(f"DEBUG: Session data found, checking expiry...")
+            
             # Check if session is expired
             try:
                 if AuthUtils.is_session_expired(session_data, self.session_timeout_minutes):
+                    print(f"DEBUG: Session {session_id} expired, deleting...")
                     logger.info(f"Session {session_id} expired, deleting...")
                     await self.auth_service._delete_data(session_key)
                     return False, {}, AuthUtils.create_error_response(
@@ -124,10 +127,14 @@ class AuthController:
                         action_required="restart"
                     )
             except Exception as e:
+                print(f"DEBUG: Error checking session expiry: {e}")
                 logger.error(f"Error checking session expiry: {e}")
+            
+            print(f"DEBUG: Checking session state: {session_data.get('state')}")
             
             # Check if session is locked
             if session_data["state"] == self.SESSION_STATES["LOCKED"]:
+                print(f"DEBUG: Session is locked")
                 lockout_remaining = AuthUtils.get_lockout_remaining_time(session_data, self.contact_lockout_minutes)
                 if lockout_remaining > 0:
                     return False, {}, AuthUtils.create_error_response(
@@ -143,14 +150,19 @@ class AuthController:
             
             # Check expected state
             if expected_state and session_data["state"] != expected_state:
+                print(f"DEBUG: State mismatch. Expected: {expected_state}, Got: {session_data['state']}")
                 return False, {}, AuthUtils.create_error_response(
                     f"Invalid session state. Expected {expected_state}, got {session_data['state']}",
                     "INVALID_STATE"
                 )
             
+            print(f"DEBUG: Session validation successful")
             return True, session_data, None
             
         except Exception as e:
+            print(f"DEBUG: Exception in _validate_session: {type(e).__name__}: {e}")
+            import traceback
+            print(f"DEBUG: Traceback: {traceback.format_exc()}")
             logger.error(f"Session validation error: {e}")
             return False, {}, AuthUtils.create_error_response(
                 "Session validation failed. Please try again.",
@@ -419,163 +431,6 @@ class AuthController:
             ]
         )
 
-    async def initiate_otp_verification(self, session_id: str) -> Dict[str, Any]:
-        """Initiate OTP verification with improved error handling"""
-        try:
-            # Validate session
-            is_valid, session_data, error_response = await self._validate_session(
-                session_id, 
-                self.SESSION_STATES["OTP_VERIFICATION"]
-            )
-            if not is_valid:
-                if error_response is None:
-                    return AuthUtils.create_error_response(
-                    "Session validation failed.",
-                    "SESSION_INVALID"
-                )
-                return error_response
-            
-            if not session_data["contact_verified"]:
-                return AuthUtils.create_error_response(
-                    "Contact verification required before OTP generation.",
-                    "CONTACT_NOT_VERIFIED"
-                )
-            
-            # Generate and send OTP with retry logic
-            otp_result = await self._execute_with_technical_retry(
-                self._generate_and_send_otp,
-                session_data
-            )
-            
-            if not otp_result.get("success"):
-                return otp_result
-            
-            # Update session with OTP data
-            session_data.update({
-                "otp_auth_key": otp_result["data"]["auth_key"],
-                "otp_initiated_at": datetime.now()
-            })
-            
-            await self._update_session_activity(session_id, session_data)
-            
-            return AuthUtils.create_success_response(
-                otp_result["data"]["message"],
-                masked_contact=otp_result["data"]["masked_contact"],
-                expires_in=otp_result["data"]["expires_in"],
-                otp_method=session_data["preferred_otp_method"],
-                state=self.SESSION_STATES["OTP_VERIFICATION"]
-            )
-            
-        except Exception as e:
-            logger.error(f"Error initiating OTP verification: {e}")
-            return AuthUtils.create_error_response(
-                "OTP service temporarily unavailable. Please try again.",
-                "SERVICE_ERROR",
-                retry_allowed=True,
-                technical_error=True
-            )
-
-    async def _generate_and_send_otp(self, session_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate and send OTP using AuthService core methods"""
-        try:
-            preferred_method = session_data["preferred_otp_method"]
-            email = session_data["contact_email"]
-            phone = session_data["contact_phone"]
-
-            # Validate required data
-            if not preferred_method:
-                return AuthUtils.create_error_response(
-                    "OTP method not specified",
-                    "INVALID_STATE",
-                    retry_allowed=False
-                )
-            if preferred_method == 'email' and not email:
-                return AuthUtils.create_error_response(
-                    "Email address required for email OTP",
-                    "INVALID_STATE",
-                    retry_allowed=False
-                )
-            
-            if preferred_method == 'sms' and not phone:
-                return AuthUtils.create_error_response(
-                    "Phone number required for SMS OTP",
-                    "INVALID_STATE",
-                    retry_allowed=False
-                )
-
-            # Generate OTP
-            contact = email if preferred_method == 'email' else phone
-            otp_result = await self.auth_service.generate_otp(contact, preferred_method)
-            
-            if not otp_result:
-                return AuthUtils.create_error_response(
-                    "OTP generation failed - null response",
-                    "SERVICE_ERROR",
-                    retry_allowed=True,
-                    technical_error=True
-                )
-
-            if not otp_result.get("success"):
-                return otp_result
-            
-            # Validate OTP result structure
-            if not otp_result.get("data") or not otp_result["data"].get("otp"):
-                return AuthUtils.create_error_response(
-                    "Invalid OTP generation response",
-                    "SERVICE_ERROR",
-                    retry_allowed=True,
-                    technical_error=True
-                )
-            
-            # Send OTP
-            if preferred_method == 'email':
-                send_result = await self.auth_service.send_otp_email(
-                    email, 
-                    otp_result["data"]["otp"],
-                    session_data.get("customer_data", {}).get("name", "Valued Customer")
-                )
-            else:
-                send_result = await self.auth_service.send_otp_sms(
-                    phone,
-                    otp_result["data"]["otp"]
-                )
-            
-            if not send_result:
-                return AuthUtils.create_error_response(
-                    "OTP sending failed - null response",
-                    "SEND_FAILED",
-                    retry_allowed=True,
-                    technical_error=True
-                )
-
-            if not send_result.get("success"):
-                return send_result
-            
-            # Prepare success response
-            masked_contact = (
-                AuthUtils.mask_email(email) if preferred_method == 'email' 
-                else AuthUtils.mask_phone(phone)
-            )
-            
-            return AuthUtils.create_success_response(
-                f"OTP sent successfully via {preferred_method}",
-                data={
-                    "auth_key": otp_result["data"]["auth_key"],
-                    "message": f"OTP sent to {masked_contact}",
-                    "masked_contact": masked_contact,
-                    "expires_in": otp_result["data"]["expires_in"]
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"OTP generation/sending error: {e}")
-            return AuthUtils.create_error_response(
-                "Failed to generate or send OTP",
-                "SERVICE_ERROR",
-                retry_allowed=True,
-                technical_error=True
-            )
-
     async def verify_otp(self, session_id: str, otp: str) -> Dict[str, Any]:
         """Verify OTP with improved error handling"""
         try:
@@ -642,13 +497,12 @@ class AuthController:
                 session_id, 
                 self.SESSION_STATES["OTP_VERIFICATION"]
             )
+
             if not is_valid:
-                if error_response is None:
-                    return AuthUtils.create_error_response(
+                return error_response if error_response else AuthUtils.create_error_response(
                     "Session validation failed.",
                     "SESSION_INVALID"
                 )
-                return error_response
             
             if not session_data.get("otp_auth_key"):
                 return AuthUtils.create_error_response(
