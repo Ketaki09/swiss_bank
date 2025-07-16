@@ -32,7 +32,8 @@ swiss_bank/                                    # Project root folder
 │   │   │   └── constants.py
 │   │   ├── tests/                            # Test files (RECOMMENDED)
 │   │   │   ├── __init__.py
-│   │   │   ├── test_email_service.py
+│   │   │   ├── test_email_api.py             # Testing email endpoints
+│   │   │   ├── test_health_api.py            # Testing API health 
 │   │   │   ├── test_investigation_service.py
 │   │   │   └── test_complaints_model.py
 │   │   ├── logs/                             # Application logs (OPTIONAL)
@@ -63,7 +64,7 @@ swiss_bank/                                    # Project root folder
 │   │   ├── .old-1E79E4CC60990167/
 │   │   └── ... (other node modules)
 │   ├── public/                                # Static assets
-│   │   ├── images_upload/                     # User uploaded images
+│   │   ├── images_upload/                     # UI images
 │   │   ├── favicon.ico
 │   │   ├── placeholder.svg
 │   │   └── robots.txt
@@ -72,17 +73,28 @@ swiss_bank/                                    # Project root folder
 │   │   │   ├── ui/                           # UI library components
 │   │   │   ├── About.tsx
 │   │   │   ├── hero.tsx
-│   │   │   └── Evachat.tsx
+│   │   │   └── Contact.tsx
+│   │   │   └── Footer.tsx
+│   │   │   └── Hero.tsx
+│   │   │   └── Navigation.tsx
+│   │   │   └── Services.tsx
 │   │   ├── hooks/                            # Custom React hooks
 │   │   │   ├── use-mobile.tsx
 │   │   │   └── use-toast.ts
 │   │   ├── lib/                              # Shared libraries and utilities
-│   │   │   └── utils.ts
+│   │   │   ├── utils.ts
+│   │   │   └── config.ts                     # Environment
 │   │   ├── pages/                            # Top-level page components
 │   │   │   ├── index.tsx
 │   │   │   └── NotFound.tsx
+│   │   ├── services/                            
+│   │   │   ├── authService.ts                 # Authentication flow (frontend Translator)
+│   │   │   └── VoiceService.ts                # Speech recognition
+│   │   ├── types/ 
+│   │   │   └── speech-recognition.d.ts        # TypeScript
 │   │   ├── app.css
 │   │   ├── App.tsx
+│   │   ├── .env                               # Environment variables
 │   │   ├── index.css
 │   │   ├── main.tsx
 │   │   └── vite-env.d.ts
