@@ -19,7 +19,9 @@ import redis
 from pathlib import Path
 
 # Load environment variables
-load_dotenv()
+backend_dir = Path(__file__).parent
+env_path = backend_dir / '.env'
+load_dotenv(env_path)
 
 # Configuration - make these configurable
 BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8001")
@@ -103,7 +105,7 @@ class OTPServiceDebugger:
         """Check if email template exists and is readable"""
         print("\n📄 EMAIL TEMPLATE CHECK")
         
-        template_path = Path("templates/emails/otp_email.html")
+        template_path = Path(__file__).parent.parent / "templates/emails/otp_email.html"
                 
         try:
             with open(template_path, 'r', encoding='utf-8') as f:
