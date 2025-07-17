@@ -5,7 +5,10 @@ import json
 import re
 from datetime import datetime
 import os
+from dotenv import load_dotenv
 
+# Load environment variables
+load_dotenv()
 class LLMService:
     def __init__(self):
         # Initialize Claude client
@@ -59,7 +62,7 @@ class LLMService:
             
         except Exception as e:
             print(f"Error generating chat response: {e}")
-            return "I apologize, but I'm experiencing technical difficulties. Please try again or contact our support team directly. support@swissbank.com"
+            return "I apologize, but I'm experiencing technical difficulties. Please try again or contact our support team directly support@swissbank.com"
 
     def _build_complaint_processing_prompt(self, text: str, customer_context: Dict[str, Any], attachments: List[str] = None) -> str:
         """Build prompt for complaint processing"""

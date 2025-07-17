@@ -7,9 +7,11 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import FileResponse
 
 import uvicorn
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import json
+import asyncio
+from fastapi import WebSocket
 import os
 import smtplib
 import redis
@@ -680,6 +682,196 @@ async def initiate_otp(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to initiate OTP verification"
         )
+
+@app.get("/api/auth/otp-status/{session_id}")
+async def get_otp_status(
+    session_id: str,
+    auth_service: SharedConfigAuthService = Depends(get_auth_service)
+):
+    """Get real-time OTP status including countdown information"""
+    try:
+        # Retrieve session data
+        session_key = f"auth_session:{session_id}"
+        session_data = await auth_service._retrieve_data(session_key)
+        
+        if not session_data:
+            return {
+                "success": False,
+                "message": "Invalid session",
+                "error_code": "INVALID_SESSION"
+            }
+        
+        # Check if OTP is active
+        otp_auth_key = session_data.get("otp_auth_key")
+        if not otp_auth_key:
+            return {
+                "success": True,
+                "data": {
+                    "otp_active": False,
+                    "otp_initiated": False,
+                    "expires_at": None,
+                    "remaining_seconds": 0,
+                    "method": session_data.get("preferred_otp_method", "email"),
+                    "masked_contact": ""
+                }
+            }
+        
+        # Get OTP data
+        otp_data = await auth_service._retrieve_data(otp_auth_key)
+        if not otp_data:
+            return {
+                "success": True,
+                "data": {
+                    "otp_active": False,
+                    "otp_initiated": True,
+                    "expires_at": None,
+                    "remaining_seconds": 0,
+                    "method": session_data.get("preferred_otp_method", "email"),
+                    "masked_contact": ""
+                }
+            }
+        
+        # Calculate remaining time
+        expiry_time = otp_data["expiry"]
+        if isinstance(expiry_time, str):
+            expiry_time = datetime.fromisoformat(expiry_time)
+        
+        now = datetime.now()
+        remaining_seconds = max(0, int((expiry_time - now).total_seconds()))
+        
+        # Get masked contact
+        contact = otp_data["contact"]
+        method = otp_data["method"]
+        masked_contact = (
+            AuthUtils.mask_email(contact) if method == 'email' 
+            else AuthUtils.mask_phone(contact)
+        )
+        
+        return {
+            "success": True,
+            "data": {
+                "otp_active": remaining_seconds > 0,
+                "otp_initiated": True,
+                "expires_at": expiry_time.isoformat(),
+                "remaining_seconds": remaining_seconds,
+                "method": method,
+                "masked_contact": masked_contact,
+                "attempts_used": otp_data.get("attempts", 0),
+                "max_attempts": auth_service.max_otp_attempts
+            }
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting OTP status: {e}")
+        return {
+            "success": False,
+            "message": "Failed to get OTP status",
+            "error_code": "SERVICE_ERROR"
+        }
+
+@app.post("/api/auth/refresh-otp-status")
+async def refresh_otp_status(
+    session_id: str = Form(...),
+    auth_service: SharedConfigAuthService = Depends(get_auth_service)
+):
+    """Refresh OTP status and cleanup expired OTPs"""
+    try:
+        # Get current OTP status
+        status_response = await get_otp_status(session_id, auth_service)
+        
+        if not status_response["success"]:
+            return status_response
+        
+        otp_data = status_response["data"]
+        
+        # If OTP is expired, clean up the session
+        if otp_data["otp_initiated"] and not otp_data["otp_active"]:
+            session_key = f"auth_session:{session_id}"
+            session_data = await auth_service._retrieve_data(session_key)
+            
+            if session_data and session_data.get("otp_auth_key"):
+                # Remove expired OTP key from session
+                session_data.pop("otp_auth_key", None)
+                await auth_service._store_data(session_key, session_data, 30 * 60)
+        
+        return status_response
+        
+    except Exception as e:
+        print(f"❌ Error refreshing OTP status: {e}")
+        return {
+            "success": False,
+            "message": "Failed to refresh OTP status",
+            "error_code": "SERVICE_ERROR"
+        }
+
+# Enhanced initiate-otp endpoint with better response
+@app.post("/api/auth/initiate-otp-enhanced")
+async def initiate_otp_enhanced(
+    session_id: str = Form(...),
+    auth_service: SharedConfigAuthService = Depends(get_auth_service)
+):
+    """Enhanced OTP initiation with detailed timing information"""
+    try:
+        result = await auth_service.initiate_otp_verification(session_id)
+        
+        if result.get("success"):
+            # Add precise timing information
+            current_time = datetime.now()
+            expiry_time = current_time + timedelta(minutes=auth_service.otp_expiry_minutes)
+            
+            # Enhanced response with timing details
+            enhanced_result = {
+                **result,
+                "data": {
+                    **result.get("data", {}),
+                    "initiated_at": current_time.isoformat(),
+                    "expires_at": expiry_time.isoformat(),
+                    "expiry_minutes": auth_service.otp_expiry_minutes,
+                    "total_seconds": auth_service.otp_expiry_minutes * 60,
+                    "server_time": current_time.isoformat()
+                }
+            }
+            
+            return enhanced_result
+        
+        return result
+        
+    except Exception as e:
+        print(f"❌ Error initiating enhanced OTP: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initiate OTP verification"
+        )
+
+# WebSocket endpoint for real-time OTP updates (optional)
+@app.websocket("/ws/otp-status/{session_id}")
+async def websocket_otp_status(
+    websocket: WebSocket,
+    session_id: str,
+    auth_service: SharedConfigAuthService = Depends(get_auth_service)
+):
+    """WebSocket endpoint for real-time OTP status updates"""
+    await websocket.accept()
+    
+    try:
+        while True:
+            # Send current OTP status
+            status_response = await get_otp_status(session_id, auth_service)
+            await websocket.send_json(status_response)
+            
+            # Wait 1 second before next update
+            await asyncio.sleep(1)
+            
+            # If OTP is not active, reduce update frequency
+            if (status_response.get("success") and 
+                not status_response.get("data", {}).get("otp_active", False)):
+                await asyncio.sleep(4)  # Update every 5 seconds when inactive
+                
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+    finally:
+        await websocket.close()
+
 
 @app.post("/api/auth/verify-otp")
 async def verify_otp(

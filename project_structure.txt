@@ -1,5 +1,5 @@
-swiss_bank/                                    # Project root folder
-├── Swiss_bank_agent/                          # Backend component (Python/FastAPI)
+swiss_bank/                                   # Project root folder
+├── Swiss_bank_agent/                         # Backend component (Python/FastAPI)
 │   ├── backend/
 │   │   ├── .vscode/                          # VS Code configuration
 │   │   │   └── settings.json

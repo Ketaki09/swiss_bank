@@ -814,6 +814,178 @@ class AuthService:
                 technical_error=True
             )
 
+    async def get_otp_status_detailed(self, session_id: str) -> Dict[str, Any]:
+        """Get detailed OTP status for real-time tracking"""
+        try:
+            # Retrieve session data
+            session_key = f"auth_session:{session_id}"
+            session_data = await self._retrieve_data(session_key)
+            
+            if not session_data:
+                return AuthUtils.create_error_response(
+                    "Invalid session",
+                    "INVALID_SESSION"
+                )
+            
+            # Check if OTP is active
+            otp_auth_key = session_data.get("otp_auth_key")
+            if not otp_auth_key:
+                return AuthUtils.create_success_response(
+                    "No active OTP session",
+                    data={
+                        "otp_active": False,
+                        "otp_initiated": False,
+                        "expires_at": None,
+                        "remaining_seconds": 0,
+                        "remaining_minutes": 0,
+                        "method": session_data.get("preferred_otp_method", "email"),
+                        "masked_contact": "",
+                        "progress_percentage": 0,
+                        "status": "not_initiated"
+                    }
+                )
+            
+            # Get OTP data
+            otp_data = await self._retrieve_data(otp_auth_key)
+            if not otp_data:
+                return AuthUtils.create_success_response(
+                    "OTP session expired",
+                    data={
+                        "otp_active": False,
+                        "otp_initiated": True,
+                        "expires_at": None,
+                        "remaining_seconds": 0,
+                        "remaining_minutes": 0,
+                        "method": session_data.get("preferred_otp_method", "email"),
+                        "masked_contact": "",
+                        "progress_percentage": 0,
+                        "status": "expired"
+                    }
+                )
+            
+            # Calculate timing details
+            expiry_time = otp_data["expiry"]
+            if isinstance(expiry_time, str):
+                expiry_time = datetime.fromisoformat(expiry_time)
+            
+            created_time = otp_data.get("created_at")
+            if isinstance(created_time, str):
+                created_time = datetime.fromisoformat(created_time)
+            
+            now = datetime.now()
+            remaining_seconds = max(0, int((expiry_time - now).total_seconds()))
+            remaining_minutes = remaining_seconds / 60
+            
+            # Calculate progress percentage (100% = full time, 0% = expired)
+            total_duration = self.otp_expiry_minutes * 60  # in seconds
+            progress_percentage = min(100, max(0, (remaining_seconds / total_duration) * 100))
+            
+            # Determine status
+            if remaining_seconds <= 0:
+                status = "expired"
+            elif remaining_seconds <= 60:
+                status = "expiring_soon"
+            elif remaining_seconds <= 180:
+                status = "active_warning"
+            else:
+                status = "active"
+            
+            # Get contact information
+            contact = otp_data["contact"]
+            method = otp_data["method"]
+            masked_contact = (
+                AuthUtils.mask_email(contact) if method == 'email' 
+                else AuthUtils.mask_phone(contact)
+            )
+            
+            return AuthUtils.create_success_response(
+                "OTP status retrieved",
+                data={
+                    "otp_active": remaining_seconds > 0,
+                    "otp_initiated": True,
+                    "expires_at": expiry_time.isoformat(),
+                    "created_at": created_time.isoformat() if created_time else None,
+                    "remaining_seconds": remaining_seconds,
+                    "remaining_minutes": round(remaining_minutes, 1),
+                    "method": method,
+                    "masked_contact": masked_contact,
+                    "attempts_used": otp_data.get("attempts", 0),
+                    "max_attempts": self.max_otp_attempts,
+                    "remaining_attempts": self.max_otp_attempts - otp_data.get("attempts", 0),
+                    "progress_percentage": round(progress_percentage, 1),
+                    "status": status,
+                    "server_time": now.isoformat(),
+                    "expiry_minutes": self.otp_expiry_minutes
+                }
+            )
+            
+        except Exception as e:
+            print(f"Error getting detailed OTP status: {e}")
+            return AuthUtils.create_error_response(
+                "Failed to get OTP status",
+                "SERVICE_ERROR",
+                retry_allowed=True,
+                technical_error=True
+            )
+
+    async def cleanup_expired_otp_sessions(self) -> int:
+        """Clean up expired OTP sessions and return count of cleaned items"""
+        try:
+            cleaned_count = 0
+            
+            # This would require iterating through stored sessions
+            # For now, rely on TTL and manual cleanup
+            
+            # Clean up MongoDB temp data
+            mongo_cleaned = await self.db_service.cleanup_expired_temp_data()
+            cleaned_count += mongo_cleaned
+            
+            print(f"Cleaned up {cleaned_count} expired OTP sessions")
+            return cleaned_count
+            
+        except Exception as e:
+            print(f"Error during OTP cleanup: {e}")
+            return 0
+
+    def format_otp_time_remaining(self, seconds: int) -> str:
+        """Format remaining time in human-readable format"""
+        if seconds <= 0:
+            return "Expired"
+        
+        minutes = seconds // 60
+        remaining_seconds = seconds % 60
+        
+        if minutes > 0:
+            return f"{minutes}m {remaining_seconds}s"
+        else:
+            return f"{remaining_seconds}s"
+
+    def get_otp_urgency_level(self, remaining_seconds: int) -> str:
+        """Get urgency level based on remaining time"""
+        if remaining_seconds <= 0:
+            return "expired"
+        elif remaining_seconds <= 30:
+            return "critical"
+        elif remaining_seconds <= 60:
+            return "urgent"
+        elif remaining_seconds <= 180:
+            return "warning"
+        else:
+            return "normal"
+
+    def get_otp_color_code(self, remaining_seconds: int) -> str:
+        """Get color code for UI based on remaining time"""
+        urgency = self.get_otp_urgency_level(remaining_seconds)
+        
+        color_map = {
+            "expired": "#DC2626",    # red-600
+            "critical": "#DC2626",   # red-600  
+            "urgent": "#F59E0B",     # amber-500
+            "warning": "#EAB308",    # yellow-500
+            "normal": "#10B981"      # emerald-500
+        }
+        
+        return color_map.get(urgency, "#6B7280")  # gray-500 as fallback
     async def verify_otp(self, auth_key: str, provided_otp: str) -> Dict[str, Any]:
         """Verify the provided OTP - returns standardized response"""
         try:
