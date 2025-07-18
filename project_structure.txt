@@ -64,7 +64,7 @@ swiss_bank/                                   # Project root folder
 │   └── └── EMAIL_TEMPLATES.md                # Email template documentation
 │
 │
-├── Swissbank_website/                         # Frontend component (React/Vite)
+├── swiss_bank_UI/                             # Frontend component (React/Vite)
 │   ├── node_modules/                          # Node.js dependencies
 │   │   ├── .bin/
 │   │   ├── .old-0BAB46D3F20E95F7/
@@ -79,7 +79,7 @@ swiss_bank/                                   # Project root folder
 │   │  
 │   ├── src/                                   # Source code
 │   │   ├── components/                        # Reusable UI components
-│   │   │   ├── ui/                           # UI library components
+│   │   │   ├── ui/                            # UI library components
 │   │   │   ├── About.tsx
 │   │   │   ├── Contact.tsx
 │   │   │   ├── EvaChat.tsx
