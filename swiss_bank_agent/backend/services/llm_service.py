@@ -78,7 +78,6 @@ Customer Information:
 - Account Type: {customer_context.get('account_type', 'Unknown')}
 - Previous Complaints: {len(customer_context.get('previous_complaints', []))} complaints
 - Customer Since: {customer_context.get('registration_date', 'Unknown')}
-- Location: {customer_context.get('location', 'Unknown')}
 
 Complaint Text:
 {text}
