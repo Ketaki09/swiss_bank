@@ -1,0 +1,47 @@
+# Project structure 
+Swissbank_website/
+├── node_modules/
+│   |── .bin/
+│   |── .old-0BAB46D3F20E95F7/
+│   |── .old-1E79E4CC60990167/
+│   |── So on files
+├── public/
+│   |── images_upload/      # Static assets like images, icons
+│   |── favicon.ico
+│   |── placeholder.svg
+│   |── robots.txt
+├── src/
+│   ├── components/         # Reusable UI components
+│   	├── ui/
+│   	├── About.tsx
+│   	├── hero.tsx
+│   	├── Evachat.tsx
+│   ├── hooks/              # Custom React hooks
+│   	├── use-mobile.tsx
+│   	├── use-toast.ts
+│   ├── lib/                # Shared libraries, utils, API clients
+│   	├── utils.ts
+│   ├── pages/              # Top-level page components (for routing)
+│   	├── index.tsx
+│   	├── NotFound.tsx
+│   ├── app.css
+│   ├── App.tsx
+│   ├── index.css
+│   ├── main.tsx
+│   ├── vite-env.d.ts
+├── .gitignore
+├── bun.lockb
+├── compnonents.json
+├── eslint.config.js
+├── index.html
+├── package-lock.json
+├── package.json
+├── postcss.config.js
+├── README.md
+├── tailwind.config.ts
+├── tsconfig.app.json
+├── tsconfig.json
+├── tsconfig.node.json
+├── vite.config.ts
+
+

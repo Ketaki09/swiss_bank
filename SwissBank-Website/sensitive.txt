@@ -1,0 +1,19 @@
+# bun run dev
+# http://localhost:8080/auth-test  # authntication test
+## Project info
+
+**URL**: https://lovable.dev/projects/545a354b-60f8-47a2-bd00-0eebd272c849
+
+## How can I edit this code?
+
+There are several ways of editing your application.
+
+**Use Lovable**
+
+Simply visit the [Lovable Project](https://lovable.dev/projects/545a354b-60f8-47a2-bd00-0eebd272c849) and start prompting.
+
+Changes made via Lovable will be committed automatically to this repo.
+
+## How can I deploy this project?
+
+Simply open [Lovable](https://lovable.dev/projects/545a354b-60f8-47a2-bd00-0eebd272c849) and click on Share -> Publish.

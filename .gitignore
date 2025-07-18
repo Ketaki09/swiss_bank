@@ -1,6 +1,7 @@
 swiss_bank_agent/backend/.env
-SwissBank-Website/
 swiss_bank_agent/backend/.vscode/
 swiss_bank_agent/backend/services/__pycache__/
-
+SwissBank-Website/node_modules/
+SwissBank-Website/.env
+SwissBank-Website/dist/
 
