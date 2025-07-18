@@ -1,12 +1,18 @@
 swiss_bank/                                   # Project root folder
 ├── Swiss_bank_agent/                         # Backend component (Python/FastAPI)
 │   ├── backend/
+│   │   ├── __pycache__/                      # Python cache files
 │   │   ├── .vscode/                          # VS Code configuration
 │   │   │   └── settings.json
+│   │   │ 
 │   │   ├── models/                           # Data models
 │   │   │   ├── __pycache__/                  # Python cache files
+│   │   │   ├── __init__.py
 │   │   │   └── complaints_model.py
+│   │   │ 
 │   │   ├── services/                         # Business logic services
+│   │   │   ├── __pycache__/                  # Python cache files
+│   │   │   ├── __init__.py
 │   │   │   ├── auth_controller.py            # Authentication sesion manager with user attempt limits
 │   │   │   ├── auth_service.py               # authentication service over mail / phone number
 │   │   │   ├── auth_utils.py                 # authentication common utilities between service and controller file
@@ -14,47 +20,48 @@ swiss_bank/                                   # Project root folder
 │   │   │   ├── email_service.py              # Updated email service
 │   │   │   ├── investigation_service.py
 │   │   │   └── llm_service.py
+│   │   │ 
+│   │   ├── static/                           # Static files 
+│   │   │   ├── css/
+│   │   │   ├── js/
+│   │   │   ├── images/
+│   │   │   └── favicon.ico
+│   │   │ 
 │   │   ├── templates/                        # Email templates 
 │   │   │   └── emails/                       # Email template files
 │   │   │       ├── base_template.html        # Base template with common styling
 │   │   │       ├── complaint_confirmation.html
+│   │   │       ├── internal_notification.html
 │   │   │       ├── investigation_update.html
-│   │   │       ├── resolution_notification.html
-│   │   │       └── internal_notification.html
-│   │   ├── static/                           # Static files (OPTIONAL)
-│   │   │   ├── css/
-│   │   │   ├── js/
-│   │   │   └── images/
+│   │   │       ├── otp_email.html
+│   │   │       └── resolution_notification.html
+│   │   │ 
 │   │   ├── utils/                            # Utility functions (OPTIONAL)
 │   │   │   ├── __init__.py
 │   │   │   ├── validators.py
 │   │   │   ├── helpers.py
 │   │   │   └── constants.py
-│   │   ├── tests/                            # Test files (RECOMMENDED)
+│   │   │ 
+│   │   ├── tests/                            # Test files 
 │   │   │   ├── __init__.py
 │   │   │   ├── test_email_api.py             # Testing email endpoints
 │   │   │   ├── test_health_api.py            # Testing API health 
-│   │   │   ├── test_investigation_service.py
-│   │   │   └── test_complaints_model.py
-│   │   ├── logs/                             # Application logs (OPTIONAL)
-│   │   │   ├── app.log
-│   │   │   └── error.log
+│   │   │   └── test_sms_api.py
+│   │   │ 
 │   │   ├── .env                              # Environment variables
 │   │   ├── main.py                           # FastAPI application entry point
-│   │   └── requirements.txt                  # Python dependencies
+│   │   │ 
 │   ├── data/                                 # Data generation and storage
-│   │   ├── data_generator.py
 │   │   ├── sample_data/                      # Sample data files (OPTIONAL)
 │   │   │   ├── complaints.json
 │   │   │   └── customers.json
+│   │   ├── data_generator.py
+│   │   └── data_validator.ipynb
+│   │   
 │   ├── docs/                                 # Documentation (RECOMMENDED)
 │   │   ├── API.md                            # API documentation
 │   │   ├── SETUP.md                          # Setup instructions
-│   │   └── EMAIL_TEMPLATES.md                # Email template documentation
-│   └── scripts/                              # Utility scripts (OPTIONAL)
-│       ├── setup_database.py
-│       ├── test_email_templates.py
-│       └── deploy.sh
+│   └── └── EMAIL_TEMPLATES.md                # Email template documentation
 │
 │
 ├── Swissbank_website/                         # Frontend component (React/Vite)
@@ -63,41 +70,52 @@ swiss_bank/                                   # Project root folder
 │   │   ├── .old-0BAB46D3F20E95F7/
 │   │   ├── .old-1E79E4CC60990167/
 │   │   └── ... (other node modules)
+│   │  
 │   ├── public/                                # Static assets
 │   │   ├── images_upload/                     # UI images
 │   │   ├── favicon.ico
 │   │   ├── placeholder.svg
 │   │   └── robots.txt
+│   │  
 │   ├── src/                                   # Source code
 │   │   ├── components/                        # Reusable UI components
 │   │   │   ├── ui/                           # UI library components
 │   │   │   ├── About.tsx
-│   │   │   ├── hero.tsx
-│   │   │   └── Contact.tsx
-│   │   │   └── Footer.tsx
-│   │   │   └── Hero.tsx
-│   │   │   └── Navigation.tsx
-│   │   │   └── Services.tsx
+│   │   │   ├── Contact.tsx
+│   │   │   ├── EvaChat.tsx
+│   │   │   ├── Footer.tsx
+│   │   │   ├── Hero.tsx
+│   │   │   ├── Navigation.tsx
+│   │   │   ├── Services.tsx
+│   │   │   └── TradingWidget.tsx
+│   │   │ 
 │   │   ├── hooks/                            # Custom React hooks
 │   │   │   ├── use-mobile.tsx
-│   │   │   └── use-toast.ts
+│   │   │   ├── use-toast.ts
+│   │   │   └── useOTPStatus.ts
+│   │   │    
 │   │   ├── lib/                              # Shared libraries and utilities
 │   │   │   ├── utils.ts
 │   │   │   └── config.ts                     # Environment
+│   │   │  
 │   │   ├── pages/                            # Top-level page components
-│   │   │   ├── index.tsx
+│   │   │   ├── AuthTestPage.tsx
+│   │   │   ├── Index.tsx
 │   │   │   └── NotFound.tsx
+│   │   │  
 │   │   ├── services/                            
 │   │   │   ├── authService.ts                 # Authentication flow (frontend Translator)
 │   │   │   └── VoiceService.ts                # Speech recognition
+│   │   │  
 │   │   ├── types/ 
 │   │   │   └── speech-recognition.d.ts        # TypeScript
+│   │   │  
 │   │   ├── app.css
 │   │   ├── App.tsx
-│   │   ├── .env                               # Environment variables
 │   │   ├── index.css
 │   │   ├── main.tsx
 │   │   └── vite-env.d.ts
+│   │ 
 │   ├── .gitignore
 │   ├── bun.lockb
 │   ├── components.json
@@ -111,10 +129,13 @@ swiss_bank/                                   # Project root folder
 │   ├── tsconfig.app.json
 │   ├── tsconfig.json
 │   ├── tsconfig.node.json
-│   └── vite.config.ts
+│   ├── vite.config.ts
+│   └── website_structure.txt
 │
 ├── .gitignore                                # Global gitignore
 ├── .gitmodules                               # Access git sub modules
 ├── README.md                                 # Project documentation
 ├── docker-compose.yml                        # Docker configuration (OPTIONAL)
-└── Dockerfile                                # Docker configuration (OPTIONAL)
+├── Dockerfile                                # Docker configuration (OPTIONAL)
+├── project_structure.txt
+└── requirements.txt
