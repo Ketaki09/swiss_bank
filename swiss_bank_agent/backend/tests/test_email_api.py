@@ -19,7 +19,8 @@ import redis
 from pathlib import Path
 
 # Load environment variables
-backend_dir = Path(__file__).parent
+current_file_dir = Path(__file__).parent  # /tests/
+backend_dir = current_file_dir.parent
 env_path = backend_dir / '.env'
 load_dotenv(env_path)
 

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { X, Send, Mic, MicOff, Image, FileText, Plus, AlertCircle, CheckCircle, Volume2, VolumeX, Clock, RefreshCw } from "lucide-react";
+import { X, Send, Mic, MicOff, Image, FileText, Plus, AlertCircle, CheckCircle, Volume2, VolumeX, Clock, RefreshCw, Brain, Sparkles, Users } from "lucide-react";
 import { toast } from "sonner";
 import { getAuthService } from "../services/authService";
 import { VoiceService } from "../services/VoiceService";
@@ -17,6 +17,17 @@ interface Message {
   content: string;
   timestamp: Date;
   messageType?: 'text' | 'voice' | 'image' | 'document';
+  emotional_state?: string;
+  next_steps?: string[];
+  specialists_mentioned?: Array<{
+    name: string;
+    title: string;
+    experience: string;
+    specialty: string;
+    success_rate: string;
+  }>;
+  classification_pending?: any;
+  requires_confirmation?: boolean;
 }
 
 interface CustomerData {
@@ -24,6 +35,27 @@ interface CustomerData {
   name: string;
   email: string;
   phone?: string;
+  account_type?: string;
+  monthly_balance?: number;
+  credit_score?: number;
+  previous_complaints?: number;
+}
+
+interface EvaResponse {
+  response: string;
+  conversation_id: string;
+  emotional_state?: string;
+  classification_pending?: any;
+  requires_confirmation?: boolean;
+  eva_version?: string;
+}
+
+interface ClassificationConfirmationData {
+  feedback_processed: boolean;
+  feedback_type: string;
+  learning_applied: boolean;
+  followup_response: string;
+  next_steps: string[];
 }
 
 const AuthenticatedEvaChat = () => {
@@ -44,6 +76,15 @@ const AuthenticatedEvaChat = () => {
   const [authLoading, setAuthLoading] = useState(false);
   const [inputHeight, setInputHeight] = useState(40);
   
+  // Eva-specific states
+  const [pendingClassification, setPendingClassification] = useState<any>(null);
+  const [awaitingFeedback, setAwaitingFeedback] = useState(false);
+  const [evaStatus, setEvaStatus] = useState<{
+    status: string;
+    capabilities?: Record<string, boolean>;
+    learning_stats?: Record<string, number>;
+  } | null>(null);
+  
   // OTP Status using the hook
   const { 
     otpStatus, 
@@ -57,8 +98,8 @@ const AuthenticatedEvaChat = () => {
   
   // Voice-related state
   const [isListening, setIsListening] = useState(false);
-  const [isVoiceGloballyMuted, setIsVoiceGloballyMuted] = useState(false); // Global voice mute state
-  const [showRepeatInfo, setShowRepeatInfo] = useState(false); // Info popup for repeat functionality
+  const [isVoiceGloballyMuted, setIsVoiceGloballyMuted] = useState(false);
+  const [showRepeatInfo, setShowRepeatInfo] = useState(false);
   
   // Voice service
   const [voiceService] = useState(() => new VoiceService());
@@ -81,6 +122,24 @@ const AuthenticatedEvaChat = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Fetch Eva system status on component mount
+  useEffect(() => {
+    const fetchEvaStatus = async () => {
+      try {
+        const response = await fetch(`${config.backendUrl}/api/eva/status`);
+        if (response.ok) {
+          const status = await response.json();
+          setEvaStatus(status);
+          console.log('🤖 Eva Status:', status);
+        }
+      } catch (error) {
+        console.warn('Could not fetch Eva status:', error);
+      }
+    };
+    
+    fetchEvaStatus();
+  }, []);
 
   // Close attachments when clicking anywhere in the chat area
   const handleChatAreaClick = useCallback(() => {
@@ -180,65 +239,79 @@ const AuthenticatedEvaChat = () => {
     }
   }, [authService, validateSession]);
 
-  // Add greeting message when user becomes authenticated (for existing sessions)
+  // Enhanced Eva greeting when authenticated
   useEffect(() => {
     if (isAuthenticated && customerData && messages.length === 0) {
-      // Only add greeting if no messages exist (to avoid duplicate greetings)
-      const greetingMessage: Message = {
-        id: `greeting_${Date.now()}`,
-        type: 'bot',
-        content: `Hello ${customerData.name || 'valued customer'}! I'm Eva, your banking assistant. How can I help you today?`,
-        timestamp: new Date(),
-        messageType: 'text'
+      // Test Eva's greeting capability first
+      const testEvaGreeting = async () => {
+        try {
+          const response = await fetch(`${config.backendUrl}/api/eva/test-greeting`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${sessionId}`
+            }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const greetingMessage: Message = {
+              id: `eva_greeting_${Date.now()}`,
+              type: 'bot',
+              content: data.greeting,
+              timestamp: new Date(),
+              messageType: 'text',
+              emotional_state: 'neutral'
+            };
+            setMessages([greetingMessage]);
+            
+            
+            // Play greeting voice message if not globally muted
+            if (!isVoiceGloballyMuted) {
+              setTimeout(() => {
+                voiceService.textToSpeech(data.greeting);
+              }, 1500);
+            }
+          } else {
+            // Fallback greeting
+            const fallbackGreeting: Message = {
+              id: `fallback_greeting_${Date.now()}`,
+              type: 'bot',
+              content: `Hello ${customerData.name}! I'm Eva, your AI banking assistant. How can I help you today?`,
+              timestamp: new Date(),
+              messageType: 'text'
+            };
+            setMessages([fallbackGreeting]);
+          }
+        } catch (error) {
+          console.error('Error testing Eva greeting:', error);
+          // Fallback greeting
+          const fallbackGreeting: Message = {
+            id: `error_greeting_${Date.now()}`,
+            type: 'bot',
+            content: `Hello ${customerData.name}! I'm Eva, your AI banking assistant. How can I help you today?`,
+            timestamp: new Date(),
+            messageType: 'text'
+          };
+          setMessages([fallbackGreeting]);
+        }
       };
-      setMessages([greetingMessage]);
       
-      // Play greeting voice message if not globally muted
-      if (!isVoiceGloballyMuted) {
-        setTimeout(() => {
-          voiceService.textToSpeech(greetingMessage.content);
-        }, 500); // Small delay to ensure message is rendered
-      }
+      testEvaGreeting();
       
       // Show repeat info popup for first-time users
       setTimeout(() => {
         setShowRepeatInfo(true);
-        // Auto-hide after 5 seconds
         setTimeout(() => setShowRepeatInfo(false), 5000);
-      }, 1000);
-      
-      // Show repeat info popup for first-time users
-      setTimeout(() => {
-        setShowRepeatInfo(true);
-        // Auto-hide after 5 seconds
-        setTimeout(() => setShowRepeatInfo(false), 5000);
-      }, 1000);
+      }, 2000);
     }
-  }, [isAuthenticated, customerData, messages.length, isVoiceGloballyMuted, voiceService]);
+  }, [isAuthenticated, customerData, messages.length, isVoiceGloballyMuted, voiceService, sessionId, evaStatus, addSystemMessage]);
 
-  // Updated event listeners to not show any messages after auth
+  // Enhanced event listeners
   useEffect(() => {
     const handleAuthSuccess = (data: AuthResponse) => {
       setIsAuthenticated(true);
       setAuthStep('authenticated');
       setCustomerData(data.customer_data);
-      
-      // Add automatic greeting message when authentication is successful
-      const greetingMessage: Message = {
-        id: `greeting_${Date.now()}`,
-        type: 'bot',
-        content: `Hello ${data.customer_data?.name || 'valued customer'}! I'm Eva, your banking assistant. How can I help you today?`,
-        timestamp: new Date(),
-        messageType: 'text'
-      };
-      setMessages(prev => [...prev, greetingMessage]);
-      
-      // Play greeting voice message if not globally muted
-      if (!isVoiceGloballyMuted) {
-        setTimeout(() => {
-          voiceService.textToSpeech(greetingMessage.content);
-        }, 500); // Small delay to ensure message is rendered
-      }
     };
 
     const handleContactVerified = (data: AuthResponse) => {
@@ -396,34 +469,7 @@ const AuthenticatedEvaChat = () => {
     return styles[urgency] || styles.normal;
   };
 
-  const generateEvaResponse = useCallback((userInput: string, inputType: string): string => {
-    const responses = {
-      greeting: `Hello ${customerData?.name || 'valued customer'}! I'm Eva, your banking assistant. How can I help you today?`,
-      
-      services: "Swiss Bank offers comprehensive Private Banking, Corporate Banking, Asset Management, Trading Services, and Wealth Management. Each service is designed with Swiss precision to meet your specific financial objectives.",
-      
-      complaint: "I understand you'd like to file a complaint. I can help you with that. Please describe your concern in detail, and I'll make sure it's properly documented and escalated to the appropriate department.",
-      
-      account: `${customerData?.name || 'valued customer'}, I can help you with account inquiries. For security reasons, I'll need to verify some additional details before accessing your specific account information.`,
-      
-      default: `Thank you for your message, ${customerData?.name || 'valued customer'}. As your Swiss Bank AI assistant, I'm here to provide personalized guidance. How can I assist you today?`
-    };
-
-    const input = userInput.toLowerCase();
-    
-    if (input.includes('hello') || input.includes('hi') || input.includes('greet')) {
-      return responses.greeting;
-    } else if (input.includes('service') || input.includes('offer')) {
-      return responses.services;
-    } else if (input.includes('complaint') || input.includes('problem') || input.includes('issue')) {
-      return responses.complaint;
-    } else if (input.includes('account') || input.includes('balance')) {
-      return responses.account;
-    } else {
-      return responses.default;
-    }
-  }, [customerData]);
-
+  // MAIN EVA CHAT INTEGRATION - This replaces the simple generateEvaResponse
   const handleSendMessage = async (content: string, type: 'text' | 'voice' | 'image' | 'document' = 'text') => {
     if (!content.trim() && type === 'text') return;
     if (!isAuthenticated) {
@@ -445,8 +491,8 @@ const AuthenticatedEvaChat = () => {
     setIsProcessing(true);
 
     try {
-      // For voice messages, use simple local processing
       if (type === 'voice') {
+        // For voice messages, still use Eva backend but mark as voice input
         const voiceResponse = await voiceService.processVoiceInput(content);
         
         const botMessage: Message = {
@@ -458,20 +504,17 @@ const AuthenticatedEvaChat = () => {
         };
         
         setMessages(prev => [...prev, botMessage]);
-      
-      // Automatically play voice for fallback bot message
-      playVoiceForBotMessage(botMessage.content, botMessage.id);
-        
-        // Automatically play voice for bot message
-        playVoiceForBotMessage(voiceResponse, botMessage.id);
-        
+        playVoiceForBotMessage(botMessage.content, botMessage.id);
       } else {
-        // Call backend chat API for text messages
+        // FIXED: Use the correct Eva endpoint
         const formData = new FormData();
         formData.append('message', content);
         formData.append('session_id', sessionId!);
 
-        const response = await fetch(`${config.backendUrl}/api/chat/message`, {
+        console.log('🤖 Sending message to Eva Agent:', content);
+        console.log('🔗 Using endpoint:', `${config.backendUrl}/api/eva/chat`);
+        
+        const response = await fetch(`${config.backendUrl}/api/eva/chat`, {  // ✅ CORRECT ENDPOINT
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${sessionId}`
@@ -479,48 +522,159 @@ const AuthenticatedEvaChat = () => {
           body: formData
         });
 
+        console.log('📡 Response status:', response.status);
+        console.log('📡 Response ok:', response.ok);
+
         if (response.ok) {
-          const data = await response.json();
+          const data: EvaResponse = await response.json();
+          console.log('🤖 Eva Response received:', data);
+          
           const botMessage: Message = {
             id: (Date.now() + 1).toString(),
             type: 'bot',
-            content: data.response || 'I received your message and am processing it.',
+            content: data.response,
             timestamp: new Date(),
-            messageType: 'text'
+            messageType: 'text',
+            emotional_state: data.emotional_state,
+            classification_pending: data.classification_pending,
+            requires_confirmation: data.requires_confirmation
           };
+          
           setMessages(prev => [...prev, botMessage]);
           
-          // Automatically play voice for bot message
-          playVoiceForBotMessage(data.response || 'I received your message and am processing it.', botMessage.id);
+          // Handle classification confirmation if needed
+          if (data.requires_confirmation && data.classification_pending) {
+            setPendingClassification(data.classification_pending);
+            setAwaitingFeedback(true);
+            
+            // Add system message prompting for confirmation
+            setTimeout(() => {
+              addSystemMessage(
+                `🔍 I've analyzed your message and classified it as: "${data.classification_pending.theme}". ` +
+                `Is this correct? Please respond with "Yes, exactly right!" or "No, that's not quite right" to help me learn.`
+              );
+            }, 1000);
+          }
+          
+          // Auto-play voice response
+          playVoiceForBotMessage(data.response, botMessage.id);
+          
+          // Show Eva capabilities in action
+          if (data.eva_version) {
+            console.log(`✅ Eva ${data.eva_version} response delivered`);
+          }
+          
         } else {
-          throw new Error('Chat API request failed');
+          // Enhanced error logging
+          const errorText = await response.text();
+          console.error('❌ Eva API Error:', {
+            status: response.status,
+            statusText: response.statusText,
+            error: errorText
+          });
+          throw new Error(`Eva API failed: ${response.status} - ${errorText}`);
         }
       }
     } catch (error) {
-      console.error('Chat error:', error);
-      // Fallback to simulated response
-      const botResponse = generateEvaResponse(content, type);
+      console.error('❌ Eva chat error:', error);
+      
+      // Enhanced fallback with Eva branding and error details
+      const fallbackMessage = `I apologize, ${customerData?.name || 'valued customer'}. I'm experiencing a technical issue with my AI systems. ` +
+        `Let me try to help you in a different way. What specific banking service do you need assistance with today?`;
+      
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'bot',
-        content: botResponse,
+        content: fallbackMessage,
         timestamp: new Date(),
         messageType: 'text'
       };
+      
       setMessages(prev => [...prev, botMessage]);
+      addSystemMessage(`⚠️ Eva AI temporarily offline. Error: ${error.message}`);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // Updated voice input with timeout and animations
+  // Handle classification confirmation
+  const handleClassificationConfirmation = async (feedback: string) => {
+    if (!pendingClassification || !awaitingFeedback) return;
+    
+    setIsProcessing(true);
+    
+    try {
+      const formData = new FormData();
+      formData.append('complaint_id', pendingClassification.complaint_id || `temp_${Date.now()}`);
+      formData.append('customer_feedback', feedback);
+      formData.append('original_classification', JSON.stringify(pendingClassification));
+      formData.append('session_id', sessionId!);
+      
+      const response = await fetch(`${config.backendUrl}/api/eva/confirm-classification`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${sessionId}`
+        },
+        body: formData
+      });
+      
+      if (response.ok) {
+        const data: ClassificationConfirmationData = await response.json();
+        
+        const followupMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: 'bot',
+          content: data.followup_response,
+          timestamp: new Date(),
+          messageType: 'text',
+          next_steps: data.next_steps
+        };
+        
+        setMessages(prev => [...prev, followupMessage]);
+        playVoiceForBotMessage(data.followup_response, followupMessage.id);
+        
+        // Show learning confirmation
+        if (data.learning_applied) {
+          addSystemMessage(`🎯 Thank you! I've learned from your feedback (${data.feedback_type}). This helps me improve for future interactions.`);
+        }
+        
+        // Reset confirmation state
+        setPendingClassification(null);
+        setAwaitingFeedback(false);
+      }
+    } catch (error) {
+      console.error('Classification confirmation error:', error);
+      addSystemMessage('❌ Failed to process your feedback, but I appreciate the input!');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Detect confirmation responses
+  useEffect(() => {
+    if (awaitingFeedback && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.type === 'user') {
+        const content = lastMessage.content.toLowerCase();
+        
+        if (content.includes('yes') || content.includes('correct') || content.includes('exactly') || content.includes('right')) {
+          handleClassificationConfirmation('Yes, exactly right!');
+        } else if (content.includes('no') || content.includes('wrong') || content.includes('not right') || content.includes('incorrect')) {
+          handleClassificationConfirmation('No, that\'s not quite right');
+        } else if (content.includes('partially') || content.includes('sort of') || content.includes('close but')) {
+          handleClassificationConfirmation('Partially correct, but not exactly');
+        }
+      }
+    }
+  }, [messages, awaitingFeedback]);
+
+  // Voice input with timeout and animations
   const handleVoiceInput = async () => {
     if (!isAuthenticated) {
       toast.error('Please authenticate first');
       return;
     }
 
-    // Check if speech recognition is supported
     if (!voiceService.isSupported()) {
       toast.error('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
       return;
@@ -556,7 +710,6 @@ const AuthenticatedEvaChat = () => {
     setIsVoiceGloballyMuted(newMuteState);
     
     if (newMuteState) {
-      // If muting globally, stop any current speech
       speechSynthesis.cancel();
       toast.info('Voice messages muted');
     } else {
@@ -566,7 +719,6 @@ const AuthenticatedEvaChat = () => {
 
   // Function to automatically play voice for bot messages
   const playVoiceForBotMessage = useCallback(async (content: string, messageId: string) => {
-    // Only play if not globally muted
     if (!isVoiceGloballyMuted) {
       try {
         await voiceService.textToSpeech(content);
@@ -580,7 +732,6 @@ const AuthenticatedEvaChat = () => {
   const repeatVoiceMessage = useCallback(async (content: string) => {
     if (!isVoiceGloballyMuted) {
       try {
-        // Stop any current speech before starting new one
         speechSynthesis.cancel();
         await voiceService.textToSpeech(content);
       } catch (error) {
@@ -605,7 +756,7 @@ const AuthenticatedEvaChat = () => {
     
     toast.success(`${fileType === 'image' ? 'Image' : 'Document'} uploaded: ${fileName}`);
     
-    handleSendMessage(`Uploaded ${fileType}: ${fileName}`, fileType);
+    handleSendMessage(`I've uploaded a ${fileType}: ${fileName}. Can you help me with this?`, fileType);
     setShowAttachments(false);
   };
 
@@ -652,8 +803,20 @@ const AuthenticatedEvaChat = () => {
               className="w-6 h-6 rounded-full object-cover"
             />
             <div>
-              <span className="font-semibold font-serif text-sm">Eva - AI Assistant</span>
-              <div className="font-semibold font-serif text-xs text-yellow-400">Bank of Swiss</div>
+              <div className="flex items-center space-x-2">
+                <span className="font-semibold font-serif text-sm">Eva - AI Assistant</span>
+                {evaStatus?.status === 'active' && (
+                  <div className="flex items-center space-x-1">
+                    {evaStatus.capabilities?.reinforcement_learning && (
+                      <Sparkles className="w-2 h-2 text-yellow-400 animate-pulse" />
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="font-semibold font-serif text-xs text-yellow-400">Bank of Swiss</span>
+                {evaStatus?.status === 'active'}
+              </div>
             </div>
           </div>
           <div className="flex items-center space-x-1">
@@ -699,6 +862,7 @@ const AuthenticatedEvaChat = () => {
                       <AlertCircle className="w-8 h-8 text-yellow-400 mb-2" />
                       <h3 className="font-semibold text-white">Verify Your Identity</h3>
                       <p className="text-sm text-gray-300">Please enter your email to continue</p>
+                      {evaStatus?.status === 'active'}
                     </div>
                     
                     <div className="space-y-2">
@@ -903,7 +1067,7 @@ const AuthenticatedEvaChat = () => {
               </div>
             ) : (
               <>
-                {/* Messages - REMOVED TIMESTAMPS */}
+                {/* Enhanced Messages with Eva Features */}
                 {messages.map((message) => (
                   <div
                     key={message.id}
@@ -925,6 +1089,48 @@ const AuthenticatedEvaChat = () => {
                           </span>
                         )}
                         {message.content}
+                        
+                        {/* Show emotional state for Eva messages */}
+                        {message.type === 'bot' && message.emotional_state && message.emotional_state !== 'neutral' && (
+                          <div className="mt-2 text-xs opacity-70">
+                            <span className="bg-black/20 px-2 py-1 rounded">
+                              Emotion detected: {message.emotional_state}
+                            </span>
+                          </div>
+                        )}
+                        
+                        {/* Show next steps if available */}
+                        {message.type === 'bot' && message.next_steps && message.next_steps.length > 0 && (
+                          <div className="mt-2 text-xs">
+                            <div className="bg-black/20 p-2 rounded">
+                              <strong>Next Steps:</strong>
+                              <ul className="list-disc list-inside mt-1">
+                                {message.next_steps.map((step, index) => (
+                                  <li key={index}>{step}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Show specialist assignments if available */}
+                        {message.type === 'bot' && message.specialists_mentioned && message.specialists_mentioned.length > 0 && (
+                          <div className="mt-2 text-xs">
+                            <div className="bg-black/20 p-2 rounded">
+                              <div className="flex items-center mb-1">
+                                <Users className="w-3 h-3 mr-1" />
+                                <strong>Specialist Assigned:</strong>
+                              </div>
+                              {message.specialists_mentioned.map((specialist, index) => (
+                                <div key={index} className="text-xs">
+                                  <strong>{specialist.name}</strong> - {specialist.title}
+                                  <br />
+                                  {specialist.experience} experience, {specialist.success_rate} success rate
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       
                       {/* Repeat button for bot messages */}
@@ -939,13 +1145,13 @@ const AuthenticatedEvaChat = () => {
                           </button>
                           
                           {/* Show tip popup beside the first bot message */}
-                          {message.id.startsWith('greeting_') && showRepeatInfo && (
+                          {message.id.includes('greeting_') && showRepeatInfo && (
                             <div className="absolute -right-2 top-0 ml-2 w-64 z-50">
                               <div className="bg-yellow-400/95 backdrop-blur-sm border border-yellow-500 rounded-lg p-2 shadow-lg animate-in fade-in-0 slide-in-from-right-2 duration-300">
                                 <div className="flex items-start space-x-2">
                                   <AlertCircle className="w-3 h-3 text-black mt-0.5 flex-shrink-0" />
                                   <div className="text-black text-xs leading-relaxed">
-                                    <strong>💡 Tip:</strong> Use the repeat button (🔄) on any message to hear it again!
+                                    <strong>💡 Eva AI Tip:</strong> Use the repeat button (🔄) on any message to hear it again! I learn from every interaction.
                                   </div>
                                   <button
                                     onClick={() => setShowRepeatInfo(false)}
@@ -968,10 +1174,14 @@ const AuthenticatedEvaChat = () => {
                 {isProcessing && (
                   <div className="flex justify-start">
                     <div className="bg-yellow-500 text-black border-2 border-yellow-400 p-3 rounded-lg animate-pulse-border">
-                      <div className="flex space-x-1">
-                        <div className="w-2 h-2 bg-black rounded-full animate-bounce"></div>
-                        <div className="w-2 h-2 bg-black rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                        <div className="w-2 h-2 bg-black rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                      <div className="flex items-center space-x-2">
+                        <Brain className="w-4 h-4 animate-pulse" />
+                        <div className="flex space-x-1">
+                          <div className="w-2 h-2 bg-black rounded-full animate-bounce"></div>
+                          <div className="w-2 h-2 bg-black rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                          <div className="w-2 h-2 bg-black rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                        </div>
+                        <span className="text-xs">Eva thinking...</span>
                       </div>
                     </div>
                   </div>
@@ -1014,9 +1224,19 @@ const AuthenticatedEvaChat = () => {
             </div>
           )}
 
-          {/* Input Area with smooth scrolling */}
+          {/* Enhanced Input Area */}
           {isAuthenticated && (
             <div className="!p-3 bg-black border-t border-gray-700 mt-auto">
+              {/* Show awaiting feedback indicator */}
+              {awaitingFeedback && (
+                <div className="mb-2 p-2 bg-blue-900/20 border border-blue-500/50 rounded text-xs text-blue-400">
+                  <div className="flex items-center space-x-2">
+                    <Brain className="w-3 h-3 animate-pulse" />
+                    <span>Awaiting your feedback to improve my learning...</span>
+                  </div>
+                </div>
+              )}
+              
               <div className="flex items-end space-x-2">
                 <Button
                   variant="ghost"
@@ -1049,7 +1269,7 @@ const AuthenticatedEvaChat = () => {
                   ref={inputRef}
                   value={inputText}
                   onChange={handleInputChange}
-                  placeholder="Type your message to Eva..."
+                  placeholder={awaitingFeedback ? "Let me know if my classification was correct..." : "Type your message to Eva..."}
                   className="flex-1 bg-gray-800 border-gray-600 text-white placeholder:text-gray-400 focus:border-yellow-400 focus:ring-yellow-400 transition-all duration-200 resize-none rounded-md border px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 overflow-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                   style={{ 
                     height: `${inputHeight}px`,

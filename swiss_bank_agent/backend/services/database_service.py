@@ -1,4 +1,4 @@
-# backend/services/database_service.py
+# backend/services/database_service.py - FIXED VERSION
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 from pymongo import ASCENDING, DESCENDING
 from bson import ObjectId
@@ -53,6 +53,7 @@ class DatabaseService:
             self.temp_data_collection = self.database.temp_data
             # Create indexes for better performance
             await self.create_indexes()
+            await self.create_eva_indexes()  # Add Eva indexes
         except Exception as e:
             if self.client:
                 self.client.close()
@@ -100,6 +101,386 @@ class DatabaseService:
             await temp_data_col.create_index([("expires_at", 1)], expireAfterSeconds=0)
         except Exception:
             pass
+
+    # ==================== EVA AGENT DATABASE METHODS (NOW PROPER CLASS METHODS) ====================
+
+    async def store_eva_conversation(self, conversation_data: Dict[str, Any]) -> bool:
+        """Store Eva conversation context with full message history"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            # Proper type-safe checking
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            conversations_col = self.database["eva_conversations"]
+            
+            conversation_doc = {
+                "conversation_id": conversation_data["conversation_id"],
+                "customer_id": conversation_data["customer_id"],
+                "customer_name": conversation_data["customer_name"],
+                "messages": conversation_data["messages"],
+                "ongoing_issues": conversation_data.get("ongoing_issues", []),
+                "specialist_assignments": conversation_data.get("specialist_assignments", {}),
+                "emotional_state": conversation_data.get("emotional_state", "neutral"),
+                "classification_pending": conversation_data.get("classification_pending"),
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+                "expires_at": datetime.now() + timedelta(days=30)  # Keep for 30 days
+            }
+            
+            # Upsert conversation
+            await conversations_col.replace_one(
+                {"conversation_id": conversation_data["conversation_id"]},
+                conversation_doc,
+                upsert=True
+            )
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error storing Eva conversation: {e}")
+            return False
+
+    async def get_eva_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve Eva conversation context"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                return None
+            
+            conversations_col = self.database["eva_conversations"]
+            
+            conversation = await conversations_col.find_one(
+                {"conversation_id": conversation_id},
+                {"_id": 0}
+            )
+            
+            return conversation
+            
+        except Exception as e:
+            print(f"Error retrieving Eva conversation: {e}")
+            return None
+
+    async def store_classification_feedback(self, feedback_data: Dict[str, Any]) -> str:
+        """Store customer feedback for reinforcement learning"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            feedback_col = self.database["eva_feedback"]
+            
+            feedback_id = str(uuid.uuid4())
+            feedback_doc = {
+                "feedback_id": feedback_id,
+                "complaint_id": feedback_data["complaint_id"],
+                "customer_id": feedback_data.get("customer_id"),
+                "original_classification": feedback_data["original_classification"],
+                "customer_response": feedback_data["customer_response"],
+                "feedback_type": feedback_data["feedback_type"],
+                "learning_weight": feedback_data["learning_weight"],
+                "confidence_adjustment": feedback_data.get("confidence_adjustment", 0),
+                "created_at": datetime.now(),
+                "processed_for_training": False
+            }
+            
+            await feedback_col.insert_one(feedback_doc)
+            return feedback_id
+            
+        except Exception as e:
+            print(f"Error storing classification feedback: {e}")
+            raise e
+
+    async def get_classification_feedback_for_training(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get unprocessed feedback for model training"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                return []
+            
+            feedback_col = self.database["eva_feedback"]
+            
+            feedback_items = await feedback_col.find(
+                {"processed_for_training": False},
+                {"_id": 0}
+            ).sort("created_at", DESCENDING).limit(limit).to_list(length=limit)
+            
+            return feedback_items
+            
+        except Exception as e:
+            print(f"Error retrieving feedback for training: {e}")
+            return []
+
+    async def mark_feedback_as_processed(self, feedback_ids: List[str]) -> bool:
+        """Mark feedback as processed for training"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                return False
+            
+            feedback_col = self.database["eva_feedback"]
+            
+            result = await feedback_col.update_many(
+                {"feedback_id": {"$in": feedback_ids}},
+                {"$set": {"processed_for_training": True, "processed_at": datetime.now()}}
+            )
+            
+            return result.modified_count > 0
+            
+        except Exception as e:
+            print(f"Error marking feedback as processed: {e}")
+            return False
+
+    async def store_eva_learning_weights(self, weights_data: Dict[str, Any]) -> bool:
+        """Store Eva's learning weights for persistence"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            weights_col = self.database["eva_learning_weights"]
+            
+            weights_doc = {
+                "version_id": weights_data.get("version_id", str(uuid.uuid4())),
+                "classification_weights": weights_data["classification_weights"],
+                "total_feedback_processed": weights_data.get("total_feedback_processed", 0),
+                "accuracy_metrics": weights_data.get("accuracy_metrics", {}),
+                "created_at": datetime.now(),
+                "is_active": True
+            }
+            
+            # Deactivate previous weights
+            await weights_col.update_many(
+                {"is_active": True},
+                {"$set": {"is_active": False}}
+            )
+            
+            # Insert new weights
+            await weights_col.insert_one(weights_doc)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error storing Eva learning weights: {e}")
+            return False
+
+    async def get_eva_learning_weights(self) -> Optional[Dict[str, Any]]:
+        """Get current Eva learning weights"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                return None
+            
+            weights_col = self.database["eva_learning_weights"]
+            
+            weights = await weights_col.find_one(
+                {"is_active": True},
+                {"_id": 0}
+            )
+            
+            return weights
+            
+        except Exception as e:
+            print(f"Error retrieving Eva learning weights: {e}")
+            return None
+
+    async def get_eva_analytics(self, days: int = 30) -> Dict[str, Any]:
+        """Get Eva performance analytics"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                return {
+                    "period_days": days,
+                    "total_conversations": 0,
+                    "total_feedback": 0,
+                    "accuracy_rate": 0.0,
+                    "feedback_breakdown": {},
+                    "learning_active": False,
+                    "error": "Database not initialized"
+                }
+            
+            feedback_col = self.database["eva_feedback"]
+            conversations_col = self.database["eva_conversations"]
+            
+            start_date = datetime.now() - timedelta(days=days)
+            
+            # Get feedback analytics
+            feedback_pipeline = [
+                {"$match": {"created_at": {"$gte": start_date}}},
+                {"$group": {
+                    "_id": "$feedback_type",
+                    "count": {"$sum": 1},
+                    "avg_learning_weight": {"$avg": "$learning_weight"}
+                }}
+            ]
+            
+            feedback_stats = await feedback_col.aggregate(feedback_pipeline).to_list(length=None)
+            
+            # Get conversation analytics
+            conversation_count = await conversations_col.count_documents({
+                "created_at": {"$gte": start_date}
+            })
+            
+            # Calculate accuracy rate
+            total_feedback = sum(stat["count"] for stat in feedback_stats)
+            confirmed_feedback = next((stat["count"] for stat in feedback_stats if stat["_id"] == "confirmed"), 0)
+            partial_feedback = next((stat["count"] for stat in feedback_stats if stat["_id"] == "partial_correction"), 0)
+            
+            accuracy_rate = (confirmed_feedback + partial_feedback) / max(total_feedback, 1)
+            
+            return {
+                "period_days": days,
+                "total_conversations": conversation_count,
+                "total_feedback": total_feedback,
+                "accuracy_rate": accuracy_rate,
+                "feedback_breakdown": {stat["_id"]: stat["count"] for stat in feedback_stats},
+                "learning_active": total_feedback > 0,
+                "improvement_trend": "improving" if accuracy_rate > 0.8 else "needs_attention"
+            }
+            
+        except Exception as e:
+            print(f"Error getting Eva analytics: {e}")
+            return {
+                "period_days": days,
+                "total_conversations": 0,
+                "total_feedback": 0,
+                "accuracy_rate": 0.0,
+                "feedback_breakdown": {},
+                "learning_active": False,
+                "error": str(e)
+            }
+
+    async def cleanup_eva_data(self) -> Dict[str, Any]:
+        """Cleanup expired Eva data"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                return {
+                    "expired_conversations_removed": 0,
+                    "old_feedback_removed": 0,
+                    "error": "Database not initialized"
+                }
+            
+            conversations_col = self.database["eva_conversations"]
+            feedback_col = self.database["eva_feedback"]
+            
+            expired_conversations_count = 0
+            old_feedback_count = 0
+            
+            # Clean up expired conversations
+            expired_conversations = await conversations_col.delete_many({
+                "expires_at": {"$lt": datetime.now()}
+            })
+            expired_conversations_count = expired_conversations.deleted_count
+            
+            # Clean up old feedback (keep for 90 days)
+            old_feedback_date = datetime.now() - timedelta(days=90)
+            old_feedback = await feedback_col.delete_many({
+                "created_at": {"$lt": old_feedback_date},
+                "processed_for_training": True
+            })
+            old_feedback_count = old_feedback.deleted_count
+            
+            return {
+                "expired_conversations_removed": expired_conversations_count,
+                "old_feedback_removed": old_feedback_count
+            }
+            
+        except Exception as e:
+            print(f"Error cleaning up Eva data: {e}")
+            return {
+                "expired_conversations_removed": 0,
+                "old_feedback_removed": 0,
+                "error": str(e)
+            }
+
+    async def create_eva_indexes(self):
+        """Create indexes for Eva collections for better performance"""
+        if not self._check_connection():
+            print("❌ Database connection not established - skipping Eva indexes")
+            return
+        
+        try:
+            if self.database is None:
+                print("❌ Database not initialized - skipping Eva indexes")
+                return
+            
+            # Eva conversations indexes
+            conversations_col = self.database["eva_conversations"]
+            await conversations_col.create_index([("conversation_id", ASCENDING)], unique=True)
+            await conversations_col.create_index([("customer_id", ASCENDING)])
+            await conversations_col.create_index([("created_at", DESCENDING)])
+            await conversations_col.create_index([("expires_at", 1)], expireAfterSeconds=0)
+            
+            # Eva feedback indexes
+            feedback_col = self.database["eva_feedback"]
+            await feedback_col.create_index([("feedback_id", ASCENDING)], unique=True)
+            await feedback_col.create_index([("complaint_id", ASCENDING)])
+            await feedback_col.create_index([("customer_id", ASCENDING)])
+            await feedback_col.create_index([("feedback_type", ASCENDING)])
+            await feedback_col.create_index([("processed_for_training", ASCENDING)])
+            await feedback_col.create_index([("created_at", DESCENDING)])
+            
+            # Eva learning weights indexes
+            weights_col = self.database["eva_learning_weights"]
+            await weights_col.create_index([("version_id", ASCENDING)], unique=True)
+            await weights_col.create_index([("is_active", ASCENDING)])
+            await weights_col.create_index([("created_at", DESCENDING)])
+            
+            print("✅ Eva database indexes created successfully")
+            
+        except Exception as e:
+            print(f"❌ Error creating Eva indexes: {e}")
+
+    async def eva_health_check(self) -> Dict[str, Any]:
+        """Health check specific to Eva functionality"""
+        if not self._check_connection():
+            return {"status": "unhealthy", "error": "Database connection not established"}
+        
+        try:
+            if self.database is None:
+                return {"status": "unhealthy", "error": "Database not initialized"}
+            
+            # Check Eva collections exist and are accessible
+            collections_check = {}
+            eva_collections = ["eva_conversations", "eva_feedback", "eva_learning_weights"]
+            
+            for collection_name in eva_collections:
+                try:
+                    collection = self.database[collection_name]
+                    count = await collection.count_documents({})
+                    collections_check[collection_name] = {"status": "healthy", "document_count": count}
+                except Exception as e:
+                    collections_check[collection_name] = {"status": "error", "error": str(e)}
+            
+            # Overall status
+            all_healthy = all(
+                check["status"] == "healthy" 
+                for check in collections_check.values()
+            )
+            
+            return {
+                "status": "healthy" if all_healthy else "degraded",
+                "eva_collections": collections_check,
+                "database_name": self.database.name
+            }
+            
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "error": str(e)
+            }
+
+    # ==================== ORIGINAL DATABASE METHODS (KEEP ALL EXISTING) ====================
 
     async def save_complaint(self, complaint_data: Dict[str, Any]) -> str:
         if not self._check_connection():
@@ -491,3 +872,5 @@ class DatabaseService:
             return await self.delete_temp_data(f"otp_{phone_number}")
         except Exception:
             return False
+        
+        

@@ -18,8 +18,7 @@ swiss_bank/                                   # Project root folder
 │   │   │   ├── auth_utils.py                 # authentication common utilities between service and controller file
 │   │   │   ├── database_service.py
 │   │   │   ├── email_service.py              # Updated email service
-│   │   │   ├── investigation_service.py
-│   │   │   └── llm_service.py
+│   │   │   └── eva_agent_service.py
 │   │   │ 
 │   │   ├── static/                           # Static files 
 │   │   │   ├── css/
@@ -45,6 +44,7 @@ swiss_bank/                                   # Project root folder
 │   │   ├── tests/                            # Test files 
 │   │   │   ├── __init__.py
 │   │   │   ├── test_email_api.py             # Testing email endpoints
+│   │   │   ├── test_eva_endpoint.py          # Testing eva agent service
 │   │   │   ├── test_health_api.py            # Testing API health 
 │   │   │   └── test_sms_api.py
 │   │   │ 
@@ -72,7 +72,7 @@ swiss_bank/                                   # Project root folder
 │   │   └── ... (other node modules)
 │   │  
 │   ├── public/                                # Static assets
-│   │   ├── images_upload/                     # UI images
+│   │   ├── Images_upload/                     # UI images
 │   │   ├── favicon.ico
 │   │   ├── placeholder.svg
 │   │   └── robots.txt

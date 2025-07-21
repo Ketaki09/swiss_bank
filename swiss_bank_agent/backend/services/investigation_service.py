@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import uuid
 
 from services.database_service import DatabaseService
-from services.llm_service import LLMService
+from swiss_bank_agent.backend.services.eva_agent_service import LLMService
 from services.email_service import EmailService
 
 class InvestigationService:

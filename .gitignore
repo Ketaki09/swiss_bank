@@ -4,4 +4,5 @@ swiss_bank_agent/backend/services/__pycache__/
 swiss_bank_UI/node_modules/
 swiss_bank_UI/.env
 swiss_bank_UI/dist/
-node_modules
+node_modules/
+.vscode/
