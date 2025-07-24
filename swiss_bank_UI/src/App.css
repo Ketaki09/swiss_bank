@@ -40,3 +40,73 @@
 .read-the-docs {
   color: #888;
 }
+
+/* Enhanced message animations */
+@keyframes animate-pulse-border {
+  0%, 100% {
+    border-color: #facc15;
+    box-shadow: 0 0 10px rgba(250, 204, 21, 0.3);
+  }
+  50% {
+    border-color: #fbbf24;
+    box-shadow: 0 0 15px rgba(251, 191, 36, 0.5);
+  }
+}
+
+.animate-pulse-border {
+  animation: animate-pulse-border 2s ease-in-out infinite;
+}
+
+/* Smooth section transitions */
+.structured-section {
+  transition: all 0.2s ease-in-out;
+}
+
+.structured-section:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Enhanced bullet point animations */
+@keyframes bullet-pulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+.bullet-point {
+  animation: bullet-pulse 2s ease-in-out infinite;
+}
+
+/* Smooth color transitions for different section types */
+.section-immediate {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.05));
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.section-upcoming {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(22, 163, 74, 0.05));
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.section-action {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.1), rgba(202, 138, 4, 0.05));
+  border-color: rgba(234, 179, 8, 0.3);
+}
+
+/* Question highlight */
+.eva-question {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(147, 51, 234, 0.05));
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  position: relative;
+}
+
+.eva-question::before {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, #a855f7, #9333ea);
+  border-radius: 1px;
+}

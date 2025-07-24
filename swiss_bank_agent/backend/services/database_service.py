@@ -102,7 +102,7 @@ class DatabaseService:
         except Exception:
             pass
 
-    # ==================== EVA AGENT DATABASE METHODS (NOW PROPER CLASS METHODS) ====================
+    # ==================== EVA AGENT DATABASE METHODS ====================
 
     async def store_eva_conversation(self, conversation_data: Dict[str, Any]) -> bool:
         """Store Eva conversation context with full message history"""
@@ -479,8 +479,81 @@ class DatabaseService:
                 "status": "unhealthy",
                 "error": str(e)
             }
+    # ==================== TRIAGE AGENT DATABASE METHODS ====================
 
-    # ==================== ORIGINAL DATABASE METHODS (KEEP ALL EXISTING) ====================
+    async def update_complaint_followup(self, complaint_id: str, followup_data: Dict[str, Any]) -> bool:
+        """Update complaint with follow-up information"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            complaints_col = self.complaints_collection
+            assert complaints_col is not None
+            
+            result = await complaints_col.update_one(
+                {"complaint_id": complaint_id},
+                {
+                    "$set": {
+                        "followup_interactions": followup_data.get("followup_interactions"),
+                        "last_customer_contact": followup_data.get("last_customer_contact"),
+                        "customer_engagement_level": followup_data.get("customer_engagement_level", "active"),
+                        "updated_at": datetime.now()
+                    }
+                }
+            )
+            return result.modified_count > 0
+            
+        except Exception as e:
+            print(f"❌ Error updating complaint followup: {e}")
+            return False
+
+    async def update_complaint_context(self, complaint_id: str, context_data: Dict[str, Any]) -> bool:
+        """Update complaint with additional context"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            complaints_col = self.complaints_collection
+            assert complaints_col is not None
+            
+            result = await complaints_col.update_one(
+                {"complaint_id": complaint_id},
+                {
+                    "$set": {
+                        "additional_context": context_data.get("additional_context"),
+                        "last_updated": context_data.get("last_updated"),
+                        "updated_at": datetime.now()
+                    }
+                }
+            )
+            return result.modified_count > 0
+            
+        except Exception as e:
+            print(f"❌ Error updating complaint context: {e}")
+            return False
+
+    async def get_customer_open_complaints_by_status(self, customer_id: str, 
+                                                statuses: List[str]) -> List[Dict[str, Any]]:
+        """Get customer complaints by specific statuses"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            complaints_col = self.complaints_collection
+            assert complaints_col is not None
+            
+            complaints = await complaints_col.find(
+                {
+                    "customer_id": customer_id,
+                    "status": {"$in": statuses}
+                },
+                {"_id": 0}
+            ).sort("submission_date", DESCENDING).to_list(length=50)
+            
+            return complaints
+            
+        except Exception as e:
+            print(f"❌ Error getting complaints by status: {e}")
+            return []
+        
+    # ==================== ORIGINAL DATABASE METHODS  ====================
 
     async def save_complaint(self, complaint_data: Dict[str, Any]) -> str:
         if not self._check_connection():
@@ -872,5 +945,319 @@ class DatabaseService:
             return await self.delete_temp_data(f"otp_{phone_number}")
         except Exception:
             return False
+
+
+
+    # ============================== ORCHESTRATOR ALERT METHODS ===================================
+
+    async def store_orchestrator_alert(self, alert_data: Dict[str, Any]) -> str:
+        """Store orchestrator alert for processing"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            alerts_col = self.database["orchestrator_alerts"]
+            
+            alert_doc = {
+                "alert_id": alert_data["alert_id"],
+                "alert_type": alert_data["alert_type"],
+                "priority": alert_data["priority"],
+                "timestamp": alert_data["timestamp"],
+                "complaint_summary": alert_data.get("complaint_summary", {}),
+                "routing_instructions": alert_data.get("routing_instructions", {}),
+                "orchestrator_actions": alert_data.get("orchestrator_actions", []),
+                "background_information": alert_data.get("background_information", {}),
+                "new_theme_details": alert_data.get("new_theme_details", {}),
+                "immediate_actions_required": alert_data.get("immediate_actions_required", []),
+                "escalation_level": alert_data.get("escalation_level", "STANDARD"),
+                "human_review_mandatory": alert_data.get("human_review_mandatory", False),
+                "processed": False,
+                "processed_at": None,
+                "processed_by": None,
+                "created_at": datetime.now()
+            }
+            
+            await alerts_col.insert_one(alert_doc)
+            return alert_data["alert_id"]
+            
+        except Exception as e:
+            print(f"❌ Error storing orchestrator alert: {e}")
+            raise e
+
+    async def get_pending_orchestrator_alerts(self, alert_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get unprocessed orchestrator alerts"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                return []
+            
+            alerts_col = self.database["orchestrator_alerts"]
+            
+            query: Dict[str, Any] = {"processed": False}
+            if alert_type:
+                query["alert_type"] = alert_type
+            
+            alerts = await alerts_col.find(
+                query,
+                {"_id": 0}
+            ).sort("timestamp", DESCENDING).to_list(length=100)
+            
+            return alerts
+            
+        except Exception as e:
+            print(f"❌ Error getting orchestrator alerts: {e}")
+            return []
+
+    async def mark_orchestrator_alerts_processed(self, alert_ids: List[str], processed_by: str) -> bool:
+        """Mark orchestrator alerts as processed"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                return False
+            
+            alerts_col = self.database["orchestrator_alerts"]
+            
+            result = await alerts_col.update_many(
+                {"alert_id": {"$in": alert_ids}},
+                {
+                    "$set": {
+                        "processed": True,
+                        "processed_at": datetime.now(),
+                        "processed_by": processed_by
+                    }
+                }
+            )
+            
+            return result.modified_count > 0
+            
+        except Exception as e:
+            print(f"❌ Error marking alerts as processed: {e}")
+            return False
+
+    async def get_orchestrator_alert_statistics(self, days: int = 7) -> Dict[str, Any]:
+        """Get orchestrator alert statistics"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                return {
+                    "total_alerts": 0,
+                    "pending_alerts": 0,
+                    "new_theme_alerts": 0,
+                    "alert_breakdown": {},
+                    "error": "Database not initialized"
+                }
+            
+            alerts_col = self.database["orchestrator_alerts"]
+            
+            start_date = datetime.now() - timedelta(days=days)
+            
+            # Get alert type breakdown
+            pipeline = [
+                {"$match": {"created_at": {"$gte": start_date}}},
+                {"$group": {
+                    "_id": "$alert_type",
+                    "total": {"$sum": 1},
+                    "pending": {"$sum": {"$cond": [{"$eq": ["$processed", False]}, 1, 0]}},
+                    "critical": {"$sum": {"$cond": [{"$eq": ["$priority", "CRITICAL"]}, 1, 0]}}
+                }}
+            ]
+            
+            breakdown_stats = await alerts_col.aggregate(pipeline).to_list(length=None)
+            
+            # Total counts
+            total_alerts = await alerts_col.count_documents({
+                "created_at": {"$gte": start_date}
+            })
+            
+            pending_alerts = await alerts_col.count_documents({
+                "created_at": {"$gte": start_date},
+                "processed": False
+            })
+            
+            new_theme_alerts = await alerts_col.count_documents({
+                "created_at": {"$gte": start_date},
+                "alert_type": "NEW_THEME_DETECTED"
+            })
+            
+            return {
+                "total_alerts": total_alerts,
+                "pending_alerts": pending_alerts,
+                "new_theme_alerts": new_theme_alerts,
+                "alert_breakdown": {stat["_id"]: stat for stat in breakdown_stats},
+                "period_days": days
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting alert statistics: {e}")
+            return {
+                "total_alerts": 0,
+                "pending_alerts": 0,
+                "new_theme_alerts": 0,
+                "alert_breakdown": {},
+                "error": str(e)
+            }
+
+    # ===================== ENHANCED TRIAGE DATABASE METHODS =====================
+
+    async def create_triage_indexes(self):
+        """Create indexes for triage and orchestrator collections"""
+        if not self._check_connection():
+            print("❌ Database connection not established - skipping triage indexes")
+            return
+        
+        try:
+            if self.database is None:
+                print("❌ Database not initialized - skipping triage indexes")
+                return
+            
+            # Orchestrator alerts indexes
+            alerts_col = self.database["orchestrator_alerts"]
+            await alerts_col.create_index([("alert_id", ASCENDING)], unique=True)
+            await alerts_col.create_index([("alert_type", ASCENDING)])
+            await alerts_col.create_index([("priority", ASCENDING)])
+            await alerts_col.create_index([("processed", ASCENDING)])
+            await alerts_col.create_index([("timestamp", DESCENDING)])
+            await alerts_col.create_index([("created_at", DESCENDING)])
+            
+            # Triage processing logs (optional)
+            triage_logs_col = self.database["triage_processing_logs"]
+            await triage_logs_col.create_index([("complaint_id", ASCENDING)])
+            await triage_logs_col.create_index([("customer_id", ASCENDING)])
+            await triage_logs_col.create_index([("processing_timestamp", DESCENDING)])
+            await triage_logs_col.create_index([("complaint_type", ASCENDING)])
+            
+            print("✅ Triage database indexes created successfully")
+            
+        except Exception as e:
+            print(f"❌ Error creating triage indexes: {e}")
+
+    async def log_triage_processing(self, processing_data: Dict[str, Any]) -> str:
+        """Log triage processing for analytics"""
+        if not self._check_connection():
+            return ""
+        
+        try:
+            if self.database is None:
+                return ""
+            
+            logs_col = self.database["triage_processing_logs"]
+            
+            log_id = str(uuid.uuid4())
+            log_doc = {
+                "log_id": log_id,
+                "complaint_id": processing_data.get("complaint_id"),
+                "customer_id": processing_data.get("customer_id"),
+                "complaint_type": processing_data.get("complaint_type"),
+                "processing_timestamp": datetime.now(),
+                "classification_result": processing_data.get("classification_result"),
+                "confidence_score": processing_data.get("confidence_score"),
+                "processing_time_ms": processing_data.get("processing_time_ms"),
+                "new_theme_detected": processing_data.get("new_theme_detected", False),
+                "orchestrator_alert_sent": processing_data.get("orchestrator_alert_sent", False),
+                "error_occurred": processing_data.get("error_occurred", False),
+                "error_message": processing_data.get("error_message")
+            }
+            
+            await logs_col.insert_one(log_doc)
+            return log_id
+            
+        except Exception as e:
+            print(f"❌ Error logging triage processing: {e}")
+            return ""
+
+    async def get_triage_analytics(self, days: int = 30) -> Dict[str, Any]:
+        """Get triage processing analytics"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        try:
+            if self.database is None:
+                return {
+                    "period_days": days,
+                    "total_processed": 0,
+                    "new_complaints": 0,
+                    "followup_complaints": 0,
+                    "new_themes_detected": 0,
+                    "average_processing_time": 0,
+                    "error_rate": 0.0,
+                    "error": "Database not initialized"
+                }
+            
+            logs_col = self.database["triage_processing_logs"]
+            
+            start_date = datetime.now() - timedelta(days=days)
+            
+            # Basic statistics
+            total_processed = await logs_col.count_documents({
+                "processing_timestamp": {"$gte": start_date}
+            })
+            
+            new_complaints = await logs_col.count_documents({
+                "processing_timestamp": {"$gte": start_date},
+                "complaint_type": "new_complaint"
+            })
+            
+            followup_complaints = await logs_col.count_documents({
+                "processing_timestamp": {"$gte": start_date},
+                "complaint_type": "followup"
+            })
+            
+            new_themes = await logs_col.count_documents({
+                "processing_timestamp": {"$gte": start_date},
+                "new_theme_detected": True
+            })
+            
+            errors = await logs_col.count_documents({
+                "processing_timestamp": {"$gte": start_date},
+                "error_occurred": True
+            })
+            
+            # Average processing time
+            avg_time_pipeline = [
+                {"$match": {
+                    "processing_timestamp": {"$gte": start_date},
+                    "processing_time_ms": {"$exists": True}
+                }},
+                {"$group": {
+                    "_id": None,
+                    "avg_time": {"$avg": "$processing_time_ms"}
+                }}
+            ]
+            
+            avg_time_result = await logs_col.aggregate(avg_time_pipeline).to_list(length=1)
+            avg_processing_time = avg_time_result[0]["avg_time"] if avg_time_result else 0
+            
+            error_rate = (errors / max(total_processed, 1)) * 100
+            
+            return {
+                "period_days": days,
+                "total_processed": total_processed,
+                "new_complaints": new_complaints,
+                "followup_complaints": followup_complaints,
+                "new_themes_detected": new_themes,
+                "average_processing_time_ms": round(avg_processing_time, 2),
+                "error_count": errors,
+                "error_rate_percent": round(error_rate, 2),
+                "processing_efficiency": "high" if error_rate < 5 else "needs_improvement"
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting triage analytics: {e}")
+            return {
+                "period_days": days,
+                "total_processed": 0,
+                "new_complaints": 0,
+                "followup_complaints": 0,
+                "new_themes_detected": 0,
+                "average_processing_time_ms": 0,
+                "error_count": 0,
+                "error_rate_percent": 0.0,
+                "error": str(e)
+            }    
         
         
+            

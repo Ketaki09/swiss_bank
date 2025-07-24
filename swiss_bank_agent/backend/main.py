@@ -15,6 +15,7 @@ from fastapi import WebSocket
 import os
 import smtplib
 import redis
+import uuid
 import logging
 from twilio.rest import Client
 
@@ -32,6 +33,8 @@ from email.mime.multipart import MIMEMultipart
 
 # Agent services - FIXED IMPORT ORDER
 from services.eva_agent_service import EvaAgentService
+from services.triage_agent_service import TriageAgentService
+from services.banking_policy_service import BankingPolicyService
             
 # Load environment variables
 load_dotenv()
@@ -39,6 +42,7 @@ load_dotenv()
 # Configure logging to reduce verbosity
 logging.getLogger("twilio.http_client").setLevel(logging.WARNING)
 logging.getLogger("services.auth_service").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Global services dictionary
 services = {}
@@ -438,16 +442,36 @@ async def lifespan(app: FastAPI):
         
         # STEP 4: NOW initialize Eva with connected database
         print("\n🤖 Initializing Eva Agent with connected database...")
-        services["eva"] = EvaAgentService(database_service=services["db"])
+        services["eva"] = EvaAgentService(database_service=services["db"], triage_service=None)
+
         
         # STEP 5: Test Eva's database integration
         eva_health = await services["eva"].check_database_integration()
-        if eva_health["success"]:
-            print("✅ Eva Agent service initialized with database integration")
-        else:
-            print(f"⚠️ Eva database integration warning: {eva_health.get('error', 'Unknown error')}")
         
-        # STEP 6: Initialize auth services with shared config
+        # step 6: Initialize Triage Agent Service
+        print("\n🎯 Initializing Triage Agent...")
+        services["triage"] = TriageAgentService(
+            database_service=services["db"],
+            eva_agent_service=services["eva"]
+        )
+
+        # STEP 7: Link Triage service to Eva
+        services["eva"].triage_service = services["triage"]
+        print("✅ Eva and Triage services fully integrated")
+
+
+        triage_health = await services["triage"].health_check()
+        if triage_health["status"] == "healthy":
+            print("✅ Triage Agent service initialized successfully")
+        else:
+            print(f"⚠️ Triage Agent initialization warning: {triage_health.get('warnings', [])}")
+
+        # STEP 8: Initialize Banking Policy Service
+        print("\n🏛️  Initializing Banking Policy Service...")
+        services["banking_policy"] = BankingPolicyService()
+        print("✅ Banking Policy Service initialized")
+
+        # STEP 9: Initialize auth services with shared config
         print("\n🔐 Initializing authentication services...")
         services["auth_service"] = SharedConfigAuthService()
         await services["auth_service"].initialize()
@@ -508,7 +532,7 @@ app = FastAPI(
 # CORS middleware for frontend integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8080"],  
+    allow_origins=["http://localhost:5173", "http://localhost:8080", "http://localhost:8001"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -519,7 +543,11 @@ def get_db_service() -> DatabaseService:
     return services["db"]
 
 def get_eva_service() -> EvaAgentService:
-    return services["eva"]
+    eva_service = services["eva"]
+    # Ensure triage service is linked
+    if not eva_service.triage_service and "triage" in services:
+        eva_service.triage_service = services["triage"]
+    return eva_service
 
 def get_email_service() -> EmailService:
     return services["email"]
@@ -530,13 +558,16 @@ def get_auth_controller() -> AuthController:
 def get_auth_service() -> SharedConfigAuthService:
     return services["auth_service"]
 
+def get_triage_service() -> TriageAgentService:
+    return services["triage"]
+
 async def get_current_user(
     token: HTTPAuthorizationCredentials = Depends(security),
     auth_controller: AuthController = Depends(get_auth_controller)
 ) -> Dict[str, Any]:
     """
     Dependency to get current authenticated user from session token.
-    Token should be the session_id from authentication flow.
+    Token should be the session_id from authentication flow
     """
     try:
         # Extract session_id from token
@@ -612,10 +643,10 @@ async def health_check():
 
 @app.get("/health/detailed")
 async def detailed_health_check():
-    """Detailed health check with external service status"""
+    """Detailed health check with triage agent status"""
     service_status = get_service_status()
     
-    # Check Eva health if available
+    # Check Eva health
     eva_status = "unavailable"
     if services.get("eva"):
         try:
@@ -624,6 +655,15 @@ async def detailed_health_check():
         except:
             eva_status = "error"
     
+    # Check Triage health
+    triage_status = "unavailable"
+    if services.get("triage"):
+        try:
+            triage_health = await services["triage"].health_check()
+            triage_status = triage_health["status"]
+        except:
+            triage_status = "error"
+    
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
@@ -631,9 +671,18 @@ async def detailed_health_check():
             "database": "connected" if service_status["mongodb"] else "disconnected",
             "auth": "available" if services.get("auth_controller") else "unavailable",
             "eva": eva_status,
+            "triage": triage_status,  # NEW: Triage status
             "smtp": "connected" if service_status["smtp"] else "failed",
             "twilio": "connected" if service_status["twilio"] else "failed",
             "redis": "connected" if service_status["redis"] else "failed"
+        },
+        "agent_capabilities": {
+            "eva_conversation_memory": eva_status == "healthy",
+            "eva_learning_system": eva_status == "healthy",
+            "triage_classification": triage_status == "healthy",
+            "triage_followup_detection": triage_status == "healthy",
+            "triage_new_theme_detection": triage_status == "healthy",
+            "orchestrator_alerts": triage_status == "healthy"
         },
         "shared_config": {
             "redis_pooling": service_status["redis"],
@@ -989,13 +1038,16 @@ async def submit_complaint(
     files: List[UploadFile] = File(default=[]),
     current_user: Dict[str, Any] = Depends(get_current_user),
     db_service: DatabaseService = Depends(get_db_service),
-    eva_service: EvaAgentService = Depends(get_eva_service),  
+    triage_service: TriageAgentService = Depends(get_triage_service),  # FIXED: Use Triage, not Eva
+    eva_service: EvaAgentService = Depends(get_eva_service),
     email_service: EmailService = Depends(get_email_service)
 ):
     """
-    Submit a new complaint with authentication required
+    Submit a new complaint with PROPER Triage Agent processing
+    FIXED: Triage does classification, Eva handles conversation
     """
     try:
+        start_time = datetime.now()
         # Get customer ID from authenticated session
         session_data = current_user["session_data"]
         customer_data = session_data.get("customer_data", {})
@@ -1012,57 +1064,133 @@ async def submit_complaint(
         for file in files:
             if file.filename:
                 file_path = await save_uploaded_file(file)
-                attachments.append(file_path)
+                attachments.append({
+                    "filename": file.filename,
+                    "filepath": file_path,
+                    "content_type": file.content_type,
+                    "size": file.size
+                })
         
         # Get customer context
         customer = await db_service.get_customer(customer_id)
         if not customer:
             raise HTTPException(status_code=404, detail="Customer not found")
         
-        # Process complaint with Eva (instead of LLM service)
-        processed_complaint = await eva_service._contextual_complaint_classification(complaint_text)
-        
-        # Add customer context and other required fields
-        processed_complaint.update({
+        # Prepare complaint data for Triage Agent
+        complaint_data = {
             "customer_id": customer_id,
-            "description": complaint_text,
-            "channel": "web",
-            "attachments": attachments,
-            "related_transactions": [],
-            "customer_sentiment": "neutral",
-            "urgency_keywords": [],
-            "resolution_time_expected": "2-3 business days",
-            "financial_impact": None,
-            "processed_content": {}
-        })
+            "complaint_text": complaint_text,
+            "customer_context": customer,
+            "submission_timestamp": datetime.now().isoformat(),
+            "submission_method": "web",
+            "attachments": attachments
+        }
         
-        # Save to database
-        complaint_id = await db_service.save_complaint(processed_complaint)
+        # FIXED: Process with Triage Agent (not Eva)
+        print(f"🎯 Processing complaint through Triage Agent for customer {customer_id}")
+        triage_result = await triage_service.process_complaint(complaint_data)
         
-        # Send confirmation email to customer
-        await email_service.send_confirmation_email(
-            customer["email"], 
-            complaint_id, 
-            processed_complaint.get("theme", processed_complaint.get("primary_category", "General Inquiry"))
-        )
+        processing_time = (datetime.now() - start_time).total_seconds() * 1000
         
-        print(f"✅ Complaint {complaint_id} submitted successfully")
-        
-        return ComplaintResponse(
-            complaint_id=complaint_id,
-            status=ComplaintStatus.RECEIVED,  
-            message="Complaint received and investigation started",
-            estimated_resolution_time=processed_complaint.get("resolution_time_expected", "2-3 business days")
-        )
+        # Handle different complaint types from triage
+        if triage_result.get("complaint_type") == "new_theme":
+            # New theme detected - special handling
+            await _handle_new_theme_complaint(triage_result, customer, email_service)
+            
+            return ComplaintResponse(
+                complaint_id="NEW_THEME_" + str(uuid.uuid4())[:8],
+                status=ComplaintStatus.RECEIVED,
+                message="Your inquiry involves a new type of issue. Our senior team has been immediately notified and will contact you within 1 hour.",
+                estimated_resolution_time="1 hour for initial contact"
+            )
+            
+        elif triage_result.get("complaint_type") == "followup":
+            # Follow-up complaint - return status update
+            related_complaint_id = triage_result.get("related_complaint_id")
+            current_status = triage_result.get("current_status", {})
+            
+            return ComplaintResponse(
+                complaint_id=related_complaint_id or "UNKNOWN",
+                status=ComplaintStatus.IN_PROGRESS,
+                message=f"This appears to be a follow-up on your existing case {related_complaint_id}. " + 
+                       current_status.get("message", "Your case is being actively processed."),
+                estimated_resolution_time=current_status.get("resolution_estimate", "2-3 business days")
+            )
+            
+        elif triage_result.get("complaint_type") == "additional_context":
+            # Additional context provided
+            related_complaint_id = triage_result.get("related_complaint_id")
+            
+            return ComplaintResponse(
+                complaint_id=related_complaint_id or "UNKNOWN",
+                status=ComplaintStatus.IN_PROGRESS,
+                message=f"Thank you for the additional information on case {related_complaint_id}. " +
+                       "Our team has been updated and will review this new information.",
+                estimated_resolution_time="24-48 hours for review"
+            )
+            
+        else:
+            # New complaint - save to database with triage results
+            processed_complaint = await _create_complaint_from_triage(
+                triage_result, complaint_data, customer_id
+            )
+            
+            # Save to database
+            complaint_id = await db_service.save_complaint(processed_complaint)
+            
+            # Log triage processing
+            await db_service.log_triage_processing({
+                "complaint_id": complaint_id,
+                "customer_id": customer_id,
+                "complaint_type": triage_result.get("complaint_type"),
+                "classification_result": triage_result.get("triage_analysis", {}).get("primary_category"),
+                "confidence_score": max(triage_result.get("triage_analysis", {}).get("confidence_scores", {}).values(), default=0),
+                "processing_time_ms": processing_time,
+                "new_theme_detected": False,
+                "orchestrator_alert_sent": triage_result.get("orchestrator_alert_sent", False),
+                "error_occurred": False
+            })
+            
+            # Send confirmation email to customer
+            await email_service.send_confirmation_email(
+                customer["email"], 
+                complaint_id, 
+                triage_result.get("triage_analysis", {}).get("primary_category", "General Inquiry")
+            )
+            
+            print(f"✅ Complaint {complaint_id} processed successfully via Triage Agent")
+            
+            return ComplaintResponse(
+                complaint_id=complaint_id,
+                status=ComplaintStatus.RECEIVED,  
+                message="Complaint received and our specialist team has been notified. " +
+                       f"Priority level: {triage_result.get('routing_package', {}).get('priority_level', 'Medium')}",
+                estimated_resolution_time=triage_result.get("triage_analysis", {}).get("estimated_resolution_time", "2-3 business days")
+            )
         
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error processing complaint: {e}")
+        print(f"❌ Error processing complaint via Triage Agent: {e}")
+        
+        # Log error
+        try:
+            await db_service.log_triage_processing({
+                "complaint_id": None,
+                "customer_id": customer_id,
+                "complaint_type": "error",
+                "processing_time_ms": (datetime.now() - start_time).total_seconds() * 1000,
+                "error_occurred": True,
+                "error_message": str(e)
+            })
+        except:
+            pass
+        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing complaint: {str(e)}"
         )
+
 
 @app.get("/api/complaints/{complaint_id}")
 async def get_complaint(
@@ -1145,7 +1273,7 @@ async def get_customer_history(
             detail="Failed to retrieve customer history"
         )
 
-# ==================== EVA CHAT ENDPOINTS (ENHANCED) - ADDED FROM AI SUGGESTIONS ====================
+# ==================== EVA CHAT ENDPOINTS ====================
 
 @app.post("/api/eva/chat")
 async def eva_chat_enhanced(
@@ -1156,9 +1284,11 @@ async def eva_chat_enhanced(
     db_service: DatabaseService = Depends(get_db_service)
 ):
     """
-    Enhanced Eva chat with all 5 requirements + reinforcement learning
+    FIXED: Enhanced Eva chat that properly uses the natural flow with triage confirmation
     """
     try:
+        print(f"🎯 EVA CHAT ENDPOINT: Received message: {message[:50]}...")
+        
         # Verify session matches current user
         if session_id != current_user["session_id"]:
             raise HTTPException(
@@ -1182,12 +1312,15 @@ async def eva_chat_enhanced(
         if not customer_context:
             raise HTTPException(status_code=404, detail="Customer not found")
         
-        # Process with Eva agent (all 5 requirements implemented)
-        eva_response = await eva_service.eva_chat_response(
+        # 🔥 CRITICAL FIX: Use the natural flow method instead of the old one
+        print(f"🚀 Calling eva_chat_response_with_natural_flow for session {session_id}")
+        eva_response = await eva_service.eva_chat_response_with_natural_flow(
             message=message,
             customer_context=customer_context,
             conversation_id=session_id
         )
+        
+        print(f"✅ Eva natural flow response: stage={eva_response.get('stage', 'no-stage')}")
         
         # Save chat messages to database
         await db_service.save_chat_message(session_id, customer_id, message, is_bot=False)
@@ -1199,13 +1332,16 @@ async def eva_chat_enhanced(
             "emotional_state": eva_response.get("emotional_state", "neutral"),
             "classification_pending": eva_response.get("classification_pending"),
             "requires_confirmation": eva_response.get("requires_confirmation", False),
-            "eva_version": "v2.0_with_all_requirements"
+            "stage": eva_response.get("stage"),  
+            "sequential_messages_active": eva_response.get("sequential_messages_active", False),
+            "next_message_in_seconds": eva_response.get("next_message_in_seconds"),
+            "eva_version": "v2.0_natural_flow_fixed"
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error in Eva chat: {e}")
+        print(f"❌ Error in Eva chat natural flow: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Eva chat error: {str(e)}"
@@ -1274,6 +1410,129 @@ async def confirm_complaint_classification(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to process classification feedback"
         )
+
+@app.post("/api/eva/chat-natural")
+async def eva_chat_natural_flow(
+    message: str = Form(...),
+    session_id: str = Form(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    eva_service: EvaAgentService = Depends(get_eva_service),
+    db_service: DatabaseService = Depends(get_db_service)
+):
+    """Eva chat with natural triage flow and banking policy compliance"""
+    try:
+        print(f"🎯 CHAT-NATURAL ENDPOINT CALLED with message: {message[:50]}...") 
+        # Verify session matches current user
+        if session_id != current_user["session_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Session ID mismatch"
+            )
+        
+        # Get customer context
+        session_data = current_user["session_data"]
+        customer_data = session_data.get("customer_data", {})
+        customer_id = customer_data.get("customer_id")
+        
+        if not customer_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Customer ID not found in session"
+            )
+        
+        # Get full customer context from database
+        customer_context = await db_service.get_customer(customer_id)
+        if not customer_context:
+            raise HTTPException(status_code=404, detail="Customer not found")
+        
+        # Use enhanced Eva with natural flow
+        eva_response = await eva_service.eva_chat_response_with_natural_flow(
+            message=message,
+            customer_context=customer_context,
+            conversation_id=session_id
+        )
+        
+        print(f"🎯 NATURAL FLOW RESPONSE: {eva_response.get('stage', 'no-stage')}")  # ADD THIS LINE
+        
+        # Save chat messages to database
+        await db_service.save_chat_message(session_id, customer_id, message, is_bot=False)
+        await db_service.save_chat_message(session_id, customer_id, eva_response["response"], is_bot=True)
+        
+        return eva_response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error in Eva natural flow: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Eva natural flow error: {str(e)}"
+        )
+
+# Add endpoint for continuing action sequence
+@app.post("/api/eva/continue-action-sequence")
+async def continue_eva_action_sequence(
+    session_id: str = Form(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    eva_service: EvaAgentService = Depends(get_eva_service)
+):
+    """Continue Eva's action sequence (for timed messages)"""
+    try:
+        if session_id != current_user["session_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Session ID mismatch"
+            )
+        
+        # Continue action sequence
+        eva_response = await eva_service._continue_action_sequence(session_id)
+        
+        return eva_response
+        
+    except Exception as e:
+        print(f"❌ Error continuing action sequence: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Action sequence error: {str(e)}"
+        )
+
+@app.get("/api/eva/triage-status/{conversation_id}")
+async def get_triage_status(
+    conversation_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    eva_service: EvaAgentService = Depends(get_eva_service)
+):
+    """Get triage processing status without triggering Eva chat"""
+    try:
+        if conversation_id != current_user["session_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Session ID mismatch"
+            )
+        
+        # Check conversation state without processing
+        conversation_state = eva_service.conversation_states.get(conversation_id, {"stage": "initial"})
+        
+        return {
+            "conversation_id": conversation_id,
+            "stage": conversation_state.get("stage"),
+            "triage_results_ready": conversation_state.get("stage") in [
+                "triage_results_ready", 
+                "triage_confirmation_pending",
+                "triage_confirmation_needed"
+            ],
+            "analysis_complete": conversation_state.get("background_analysis_completed", False),
+            "triage_results": conversation_state.get("triage_results") if conversation_state.get("stage") == "triage_results_ready" else None
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting triage status: {e}")
+        return {
+            "conversation_id": conversation_id,
+            "stage": "error",
+            "triage_results_ready": False,
+            "error": str(e)
+        }
 
 @app.get("/api/eva/conversation-history/{conversation_id}")
 async def get_eva_conversation_history(
@@ -1407,6 +1666,26 @@ async def test_eva_greeting(
             detail="Failed to generate test greeting"
         )
 
+@app.get("/api/eva/integration-status")
+async def get_eva_integration_status():
+    """Test Eva integration with all services"""
+    try:
+        eva_service = services.get("eva")
+        triage_service = services.get("triage")
+        banking_policy = services.get("banking_policy")
+        
+        return {
+            "eva_available": eva_service is not None,
+            "triage_linked": eva_service.triage_service is not None if eva_service else False,
+            "banking_policy_available": banking_policy is not None,
+            "conversation_states_initialized": hasattr(eva_service, 'conversation_states') if eva_service else False,
+            "natural_flow_method_available": hasattr(eva_service, 'eva_chat_response_with_natural_flow') if eva_service else False,
+            "banking_constraints_loaded": hasattr(eva_service, 'banking_constraints') if eva_service else False,
+            "realistic_timelines_loaded": hasattr(eva_service, 'realistic_timelines') if eva_service else False
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/eva/specialist-assignments")
 async def get_specialist_assignments(
     current_user: Dict[str, Any] = Depends(get_current_user),
@@ -1470,6 +1749,224 @@ async def eva_system_status():
             "status": "error",
             "error": str(e)
         }
+
+# ==================== TRIAGE AGENT ENDPOINTS ====================
+@app.post("/api/triage/process-complaint")
+async def process_complaint_triage(
+    complaint_text: str = Form(...),
+    customer_context: str = Form(default="{}"),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    triage_service: TriageAgentService = Depends(get_triage_service)
+):
+    """Process complaint through triage agent (direct API)"""
+    try:
+        customer_data = json.loads(customer_context) if customer_context != "{}" else {}
+        session_data = current_user["session_data"]
+        customer_id = session_data.get("customer_data", {}).get("customer_id")
+        
+        complaint_data = {
+            "customer_id": customer_id,
+            "complaint_text": complaint_text,
+            "customer_context": customer_data,
+            "submission_timestamp": datetime.now().isoformat(),
+            "submission_method": "api"
+        }
+        
+        result = await triage_service.process_complaint(complaint_data)
+        return result
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Triage processing error: {str(e)}"
+        )
+
+@app.get("/api/triage/health")
+async def triage_health_check(
+    triage_service: TriageAgentService = Depends(get_triage_service)
+):
+    """Get triage agent health status"""
+    try:
+        health_status = await triage_service.health_check()
+        return health_status
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "components": {
+                "anthropic_api": "unknown",
+                "database": "unknown", 
+                "eva_integration": "unknown",
+                "new_theme_detector": "unknown"
+            }
+        }
+
+@app.get("/api/triage/analytics")
+async def get_triage_analytics(
+    days: int = 30,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db_service: DatabaseService = Depends(get_db_service)
+):
+    """Get triage processing analytics"""
+    try:
+        # TODO: Add admin role check
+        analytics = await db_service.get_triage_analytics(days)
+        return analytics
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get triage analytics: {str(e)}"
+        )
+
+# ==================== ORCHESTRATOR ALERT ENDPOINTS ====================
+
+@app.get("/api/orchestrator/alerts")
+async def get_orchestrator_alerts(
+    alert_type: Optional[str] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db_service: DatabaseService = Depends(get_db_service)
+):
+    """Get pending orchestrator alerts"""
+    try:
+        # TODO: Add orchestrator role check
+        alerts = await db_service.get_pending_orchestrator_alerts(alert_type)
+        return {"alerts": alerts, "count": len(alerts)}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get orchestrator alerts: {str(e)}"
+        )
+
+@app.post("/api/orchestrator/alerts/process")
+async def process_orchestrator_alerts(
+    alert_ids: List[str] = Form(...),
+    processed_by: str = Form(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db_service: DatabaseService = Depends(get_db_service),
+    triage_service: TriageAgentService = Depends(get_triage_service)
+):
+    """Mark orchestrator alerts as processed"""
+    try:
+        # TODO: Add orchestrator role check
+        
+        # Mark in database
+        db_success = await db_service.mark_orchestrator_alerts_processed(alert_ids, processed_by)
+        
+        # Clear from triage service
+        triage_success = await triage_service.clear_processed_alerts(alert_ids)
+        
+        return {
+            "success": db_success and triage_success,
+            "processed_count": len(alert_ids),
+            "processed_by": processed_by,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process alerts: {str(e)}"
+        )
+
+@app.get("/api/orchestrator/alerts/statistics")
+async def get_orchestrator_alert_statistics(
+    days: int = 7,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db_service: DatabaseService = Depends(get_db_service)
+):
+    """Get orchestrator alert statistics"""
+    try:
+        # TODO: Add admin role check
+        stats = await db_service.get_orchestrator_alert_statistics(days)
+        return stats
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get alert statistics: {str(e)}"
+        )
+
+@app.get("/api/orchestrator/alerts/new-themes")
+async def get_new_theme_alerts(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db_service: DatabaseService = Depends(get_db_service)
+):
+    """Get new theme alerts specifically"""
+    try:
+        # TODO: Add senior management role check
+        new_theme_alerts = await db_service.get_pending_orchestrator_alerts("NEW_THEME_DETECTED")
+        return {
+            "new_theme_alerts": new_theme_alerts,
+            "count": len(new_theme_alerts),
+            "requires_immediate_attention": len(new_theme_alerts) > 0
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get new theme alerts: {str(e)}"
+        )
+
+# ==================== HELPER FUNCTIONS ====================
+
+async def _handle_new_theme_complaint(triage_result: Dict[str, Any], 
+                                     customer: Dict[str, Any], 
+                                     email_service) -> None:
+    """Handle new theme complaint with special processing"""
+    try:
+        # Send priority email to customer
+        await email_service.send_new_theme_notification_email(
+            customer["email"],
+            customer["name"],
+            triage_result.get("new_theme_alert", {}).get("detection_reason", "Novel issue type")
+        )
+        
+        # Log as high priority
+        print(f"🚨 NEW THEME DETECTED for customer {customer['customer_id']}: {triage_result.get('new_theme_alert', {}).get('detection_reason')}")
+        
+    except Exception as e:
+        print(f"❌ Error handling new theme complaint: {e}")
+
+async def _create_complaint_from_triage(triage_result: Dict[str, Any], 
+                                       complaint_data: Dict[str, Any], 
+                                       customer_id: str) -> Dict[str, Any]:
+    """Create complaint document from triage results"""
+    
+    original_complaint = triage_result.get("original_complaint", {})
+    triage_analysis = triage_result.get("triage_analysis", {})
+    routing_package = triage_result.get("routing_package", {})
+    
+    return {
+        "customer_id": customer_id,
+        "theme": triage_analysis.get("primary_category", "General Inquiry"),
+        "title": f"Customer Complaint - {triage_analysis.get('primary_category', 'General')}",
+        "description": original_complaint.get("complaint_text", ""),
+        "channel": original_complaint.get("submission_method", "web"),
+        "severity": triage_analysis.get("urgency_level", "medium"),
+        "submission_date": datetime.now(),
+        "status": "received",
+        "attachments": original_complaint.get("attachments", []),
+        "related_transactions": triage_analysis.get("key_entities", []),
+        "customer_sentiment": triage_analysis.get("emotional_state", "neutral"),
+        "urgency_keywords": triage_analysis.get("escalation_triggers", []),
+        "resolution_time_expected": triage_analysis.get("estimated_resolution_time", "2-3 business days"),
+        "financial_impact": triage_analysis.get("financial_impact", False),
+        "estimated_financial_amount": triage_analysis.get("estimated_financial_amount"),
+        "compliance_flags": triage_analysis.get("compliance_flags", []),
+        "relationship_risk": triage_analysis.get("relationship_risk", "low"),
+        "resolution_complexity": triage_analysis.get("resolution_complexity", "moderate"),
+        "specialist_assignment": routing_package.get("specialist_assignment", {}),
+        "priority_level": routing_package.get("priority_level", "P3_MEDIUM"),
+        "sla_targets": routing_package.get("sla_targets", {}),
+        "orchestrator_instructions": routing_package.get("orchestrator_instructions", []),
+        "triage_metadata": {
+            "processing_timestamp": triage_analysis.get("processing_timestamp"),
+            "confidence_scores": triage_analysis.get("confidence_scores", {}),
+            "triage_version": triage_analysis.get("triage_version", "v1.0"),
+            "orchestrator_alert_sent": triage_result.get("orchestrator_alert_sent", False)
+        },
+        "processed_content": {
+            "triage_analysis": triage_analysis,
+            "routing_package": routing_package
+        }
+    }
 
 # ==================== ADMIN ENDPOINTS (PROTECTED) ====================
 

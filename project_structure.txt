@@ -16,9 +16,11 @@ swiss_bank/                                   # Project root folder
 │   │   │   ├── auth_controller.py            # Authentication sesion manager with user attempt limits
 │   │   │   ├── auth_service.py               # authentication service over mail / phone number
 │   │   │   ├── auth_utils.py                 # authentication common utilities between service and controller file
+│   │   │   ├── banking_policy_service.py 
 │   │   │   ├── database_service.py
 │   │   │   ├── email_service.py              # Updated email service
-│   │   │   └── eva_agent_service.py
+│   │   │   ├── eva_agent_service.py         
+│   │   │   └── triage_agent_service.py
 │   │   │ 
 │   │   ├── static/                           # Static files 
 │   │   │   ├── css/
