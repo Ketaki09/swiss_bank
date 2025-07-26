@@ -53,7 +53,7 @@ class DatabaseService:
             self.temp_data_collection = self.database.temp_data
             # Create indexes for better performance
             await self.create_indexes()
-            await self.create_eva_indexes()  # Add Eva indexes
+            await self.create_eva_indexes()  
         except Exception as e:
             if self.client:
                 self.client.close()
@@ -99,6 +99,7 @@ class DatabaseService:
             await customers_col.create_index([("email", ASCENDING)])
             await investigations_col.create_index([("complaint_id", ASCENDING)])
             await temp_data_col.create_index([("expires_at", 1)], expireAfterSeconds=0)
+            await self.create_complaint_config_indexes()
         except Exception:
             pass
 
@@ -126,7 +127,7 @@ class DatabaseService:
                 "classification_pending": conversation_data.get("classification_pending"),
                 "created_at": datetime.now(),
                 "updated_at": datetime.now(),
-                "expires_at": datetime.now() + timedelta(days=30)  # Keep for 30 days
+                "expires_at": datetime.now() + timedelta(days=30)  
             }
             
             # Upsert conversation
@@ -435,6 +436,16 @@ class DatabaseService:
             await weights_col.create_index([("version_id", ASCENDING)], unique=True)
             await weights_col.create_index([("is_active", ASCENDING)])
             await weights_col.create_index([("created_at", DESCENDING)])
+
+            critical_errors_col = self.database["eva_critical_errors"]
+            await critical_errors_col.create_index([("error_type", ASCENDING)])
+            await critical_errors_col.create_index([("timestamp", DESCENDING)])
+            await critical_errors_col.create_index([("customer_id", ASCENDING)])
+            await critical_errors_col.create_index([("conversation_id", ASCENDING)])
+            await critical_errors_col.create_index([("acknowledged", ASCENDING)])
+            await critical_errors_col.create_index([("resolved", ASCENDING)])
+            await critical_errors_col.create_index([("created_at", DESCENDING)])
+            await critical_errors_col.create_index([("severity", ASCENDING)])
             
             print("✅ Eva database indexes created successfully")
             
@@ -479,6 +490,293 @@ class DatabaseService:
                 "status": "unhealthy",
                 "error": str(e)
             }
+    
+    async def get_realistic_timelines(self) -> Dict[str, Dict[str, str]]:
+        """Get realistic timelines from database configuration"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            config_col = self.database["complaint_configuration"]
+            
+            config = await config_col.find_one(
+                {"config_id": "realistic_timelines", "active": True},
+                {"_id": 0}
+            )
+            
+            if config and "timelines" in config:
+                return config["timelines"]
+            else:
+                # Return fallback timelines if none found in database
+                return self._get_fallback_timelines()
+                
+        except Exception as e:
+            print(f"❌ Error getting realistic timelines: {e}")
+            return self._get_fallback_timelines()
+
+    def _get_fallback_timelines(self) -> Dict[str, Dict[str, str]]:
+        """Fallback timelines if database is unavailable"""
+        return {
+            "fraudulent_activities_unauthorized_transactions": {
+                "security_action": "Immediate",
+                "investigation_start": "2-4 Working hours",
+                "provisional_credit_review": "1-3 business days",
+                "final_resolution": "3-5 business days",
+                "new_card_delivery": "24-48 hours"
+            },
+            "dispute_resolution_issues": {
+                "case_creation": "Immediate",
+                "investigation_start": "1-2 Working hours", 
+                "provisional_credit_review": "1-2 business days",
+                "final_resolution": "3-5 business days",
+                "appeal_process": "5-10 business days"
+            },
+            "default": {
+                "initial_response": "2-4 hours",
+                "investigation": "1-2 business days", 
+                "resolution": "3-5 business days"
+            }
+        }
+    # ==================== COMPLAINT CONFIGURATION METHODS ====================
+
+    async def get_complaint_categories(self) -> List[str]:
+        """Get complaint categories from database configuration"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            config_col = self.database["complaint_configuration"]
+            
+            config = await config_col.find_one(
+                {"config_id": "complaint_categories", "active": True},
+                {"_id": 0}
+            )
+            
+            if config and "categories" in config:
+                return config["categories"]
+            else:
+                raise ValueError("No complaint categories found in database")
+                
+        except Exception as e:
+            print(f"❌ Error getting complaint categories: {e}")
+            raise e
+
+
+    async def update_realistic_timelines_configuration(self, new_data: Dict[str, Any]) -> bool:
+        """Update realistic timelines configuration in database"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            config_col = self.database["complaint_configuration"]
+            
+            # Deactivate current active configuration
+            await config_col.update_one(
+                {"config_id": "realistic_timelines", "active": True},
+                {"$set": {"active": False, "deactivated_at": datetime.now()}}
+            )
+            
+            # Insert new configuration
+            new_config = {
+                **new_data,
+                "config_id": "realistic_timelines",
+                "version": f"1.{int(datetime.now().timestamp())}",
+                "created_at": datetime.now(),
+                "active": True
+            }
+            
+            await config_col.insert_one(new_config)
+            print(f"✅ Updated realistic timelines configuration")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error updating realistic timelines configuration: {e}")
+            return False
+
+    async def get_realistic_timelines_status(self) -> Dict[str, Any]:
+        """Get status of realistic timelines configuration system"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            config_col = self.database["complaint_configuration"]
+            
+            # Get active timelines configuration
+            config = await config_col.find_one(
+                {"config_id": "realistic_timelines", "active": True},
+                {"_id": 0, "version": 1, "created_at": 1}
+            )
+            
+            if config:
+                return {
+                    "status": "active",
+                    "version": config["version"],
+                    "created_at": config["created_at"],
+                    "loaded": True
+                }
+            else:
+                return {
+                    "status": "fallback",
+                    "version": "fallback_v1.0",
+                    "created_at": None,
+                    "loaded": False
+                }
+            
+        except Exception as e:
+            print(f"❌ Error getting timelines configuration status: {e}")
+            raise e
+
+    async def create_realistic_timelines_indexes(self):
+        """Create indexes for realistic timelines configuration collection"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            # Realistic timelines configuration indexes
+            config_col = self.database["complaint_configuration"]
+            await config_col.create_index([("config_id", ASCENDING)])
+            await config_col.create_index([("active", ASCENDING)])
+            await config_col.create_index([("version", DESCENDING)])
+            await config_col.create_index([("created_at", DESCENDING)])
+            
+            print("✅ Realistic timelines configuration indexes created successfully")
+            
+        except Exception as e:
+            print(f"❌ Error creating timelines config indexes: {e}")
+            raise e
+        
+    async def get_banking_constraints(self) -> Dict[str, Any]:
+        """Get banking constraints from database configuration"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            config_col = self.database["complaint_configuration"]
+            
+            config = await config_col.find_one(
+                {"config_id": "banking_constraints", "active": True},
+                {"_id": 0}
+            )
+            
+            if config and "constraints" in config:
+                return config["constraints"]
+            else:
+                raise ValueError("No banking constraints found in database")
+                
+        except Exception as e:
+            print(f"❌ Error getting banking constraints: {e}")
+            raise e
+
+    async def update_complaint_configuration(self, config_id: str, new_data: Dict[str, Any]) -> bool:
+        """Update complaint configuration in database"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            config_col = self.database["complaint_configuration"]
+            
+            # Deactivate current active configuration
+            await config_col.update_one(
+                {"config_id": config_id, "active": True},
+                {"$set": {"active": False, "deactivated_at": datetime.now()}}
+            )
+            
+            # Insert new configuration
+            new_config = {
+                **new_data,
+                "config_id": config_id,
+                "version": f"1.{int(datetime.now().timestamp())}",
+                "created_at": datetime.now(),
+                "active": True
+            }
+            
+            await config_col.insert_one(new_config)
+            print(f"✅ Updated complaint configuration: {config_id}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error updating complaint configuration: {e}")
+            return False
+
+    async def get_complaint_configuration_status(self) -> Dict[str, Any]:
+        """Get status of complaint configuration system"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            config_col = self.database["complaint_configuration"]
+            
+            # Get all active configurations
+            configs = await config_col.find(
+                {"active": True},
+                {"_id": 0, "config_id": 1, "version": 1, "created_at": 1}
+            ).to_list(length=10)
+            
+            config_status = {}
+            for config in configs:
+                config_status[config["config_id"]] = {
+                    "version": config["version"],
+                    "created_at": config["created_at"],
+                    "loaded": True
+                }
+            
+            return {
+                "status": "active",
+                "configurations": config_status,
+                "total_configs": len(configs)
+            }
+            
+        except Exception as e:
+            print(f"❌ Error getting configuration status: {e}")
+            raise e
+
+    # ==================== DATABASE INDEX CREATION ====================
+    
+    async def create_complaint_config_indexes(self):
+        """Create indexes for complaint configuration collections"""
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            # Complaint configuration indexes
+            config_col = self.database["complaint_configuration"]
+            await config_col.create_index([("config_id", ASCENDING)])
+            await config_col.create_index([("active", ASCENDING)])
+            await config_col.create_index([("version", DESCENDING)])
+            await config_col.create_index([("created_at", DESCENDING)])
+            
+            print("✅ Complaint configuration indexes created successfully")
+            
+        except Exception as e:
+            print(f"❌ Error creating config indexes: {e}")
+            raise e
     # ==================== TRIAGE AGENT DATABASE METHODS ====================
 
     async def update_complaint_followup(self, complaint_id: str, followup_data: Dict[str, Any]) -> bool:
@@ -1010,6 +1308,55 @@ class DatabaseService:
         except Exception as e:
             print(f"❌ Error getting orchestrator alerts: {e}")
             return []
+
+    async def store_critical_error(self, error_details: Dict[str, Any]) -> bool:
+        """
+        Store critical Eva agent errors for monitoring and alerting
+        """
+        if not self._check_connection():
+            raise ConnectionError("Database connection not established")
+        
+        try:
+            if self.database is None:
+                raise ConnectionError("Database not properly initialized")
+            
+            # Store in a dedicated 'eva_critical_errors' collection
+            critical_errors_col = self.database["eva_critical_errors"]
+            result = await critical_errors_col.insert_one({
+                **error_details,
+                "created_at": datetime.now(),
+                "acknowledged": False,
+                "resolved": False
+            })
+            
+            # Trigger immediate alert if error count exceeds threshold
+            recent_errors = await critical_errors_col.count_documents({
+                "timestamp": {"$gte": (datetime.now() - timedelta(minutes=10)).isoformat()},
+                "error_type": "EVA_AGENT_CORE_FAILURE"
+            })
+            
+            if recent_errors >= 3:
+                # Trigger high-priority alert
+                await self._trigger_eva_failure_alert(error_details, recent_errors)
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to store critical error: {e}")
+            return False
+
+    async def _trigger_eva_failure_alert(self, error_details: Dict[str, Any], error_count: int):
+        """
+        Trigger immediate alert for Eva agent failures
+        """
+        alert_message = f"""
+        🚨 EVA AGENT CRITICAL FAILURE DETECTED
+        
+        Error Count: {error_count} in last 10 minutes
+        Last Error: {error_details['error_message']}
+        Customer Impact: {error_details['impact']}
+        
+        IMMEDIATE ACTION REQUIRED
+        """
 
     async def mark_orchestrator_alerts_processed(self, alert_ids: List[str], processed_by: str) -> bool:
         """Mark orchestrator alerts as processed"""

@@ -110,3 +110,156 @@
   background: linear-gradient(to bottom, #a855f7, #9333ea);
   border-radius: 1px;
 }
+
+/* Fade-in animation for voice controls */
+@keyframes fade-in {
+  from { 
+    opacity: 0; 
+    transform: translateY(10px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+/* Enhanced voice button animations */
+@keyframes voice-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.voice-ripple {
+  animation: voice-ripple 1s ease-out infinite;
+}
+
+/* Pulse animation for playing state */
+@keyframes voice-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.8;
+  }
+}
+
+.voice-pulse {
+  animation: voice-pulse 1.5s ease-in-out infinite;
+}
+
+/* Hover scale animation */
+@keyframes hover-scale {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.1); }
+}
+
+.hover-scale:hover {
+  animation: hover-scale 0.2s ease-in-out forwards;
+}
+
+/* Voice button glow effect */
+.voice-glow {
+  box-shadow: 0 0 20px rgba(250, 204, 21, 0.4);
+  transition: box-shadow 0.3s ease-in-out;
+}
+
+.voice-glow:hover {
+  box-shadow: 0 0 30px rgba(250, 204, 21, 0.6);
+}
+
+/* Tooltip animations */
+@keyframes tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.tooltip-fade-in {
+  animation: tooltip-fade-in 0.2s ease-out;
+}
+
+/* Enhanced button states */
+.voice-button-idle {
+  background: rgba(55, 65, 81, 0.5);
+  border: 2px solid rgba(75, 85, 99, 1);
+  color: rgba(156, 163, 175, 1);
+  transition: all 0.3s ease-in-out;
+}
+
+.voice-button-idle:hover {
+  background: rgba(250, 204, 21, 0.2);
+  border-color: rgba(250, 204, 21, 0.7);
+  color: rgba(250, 204, 21, 1);
+  transform: scale(1.1);
+}
+
+.voice-button-playing {
+  background: rgba(250, 204, 21, 0.2);
+  border: 2px solid rgba(250, 204, 21, 1);
+  color: rgba(250, 204, 21, 1);
+  box-shadow: 0 0 15px rgba(250, 204, 21, 0.3);
+}
+
+/* Copy button styles */
+.copy-button {
+  background: rgba(55, 65, 81, 0.5);
+  border: 2px solid rgba(75, 85, 99, 1);
+  color: rgba(156, 163, 175, 1);
+  transition: all 0.3s ease-in-out;
+}
+
+.copy-button:hover {
+  background: rgba(250, 204, 21, 0.2);
+  border-color: rgba(250, 204, 21, 0.7);
+  color: rgba(250, 204, 21, 1);
+  transform: scale(1.1);
+}
+
+/* Loading spinner for voice processing */
+@keyframes voice-loading {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.voice-loading {
+  animation: voice-loading 1s linear infinite;
+}
+
+/* Success flash animation */
+@keyframes success-flash {
+  0% { background-color: transparent; }
+  50% { background-color: rgba(34, 197, 94, 0.3); }
+  100% { background-color: transparent; }
+}
+
+.success-flash {
+  animation: success-flash 0.5s ease-in-out;
+}
+
+/* Error flash animation */
+@keyframes error-flash {
+  0% { background-color: transparent; }
+  50% { background-color: rgba(239, 68, 68, 0.3); }
+  100% { background-color: transparent; }
+}
+
+.error-flash {
+  animation: error-flash 0.5s ease-in-out;
+}

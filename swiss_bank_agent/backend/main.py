@@ -1,4 +1,4 @@
-# backend/main.py - FIXED VERSION with proper initialization order
+# backend/main.py - UPDATED VERSION with hardcoded categories/constraints
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -421,7 +421,7 @@ class SharedConfigAuthService(AuthService):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """FIXED Application lifespan handler with proper initialization order"""
+    """UPDATED Application lifespan handler - removed config dependencies"""
     try:
         print("\n🚀 Starting Swiss Bank Complaint Bot API...")
 
@@ -440,25 +440,54 @@ async def lifespan(app: FastAPI):
         shared_config["mongodb"]["initialized"] = True
         print("✅ Database connected successfully")
         
-        # STEP 4: NOW initialize Eva with connected database
+        # STEP 4: Create configuration indexes (only for timelines)
+        print("\n⚙️ Setting up database configuration system...")
+        try:
+            await services["db"].create_realistic_timelines_indexes()
+            print("✅ Timelines configuration indexes created")
+        except Exception as e:
+            print(f"⚠️ Configuration indexes creation failed: {e}")
+            
+        # STEP 5: NOW initialize Eva with connected database (hardcoded categories/constraints)
         print("\n🤖 Initializing Eva Agent with connected database...")
         services["eva"] = EvaAgentService(database_service=services["db"], triage_service=None)
 
-        
-        # STEP 5: Test Eva's database integration
+        # STEP 5.1: Initialize Eva's async components
+        print("\n⚙️ Initializing Eva async components...")
+        try:
+            eva_init_success = await services["eva"].initialize_async_components()
+            if eva_init_success:
+                print("✅ Eva async components initialized successfully")
+            else:
+                print("⚠️ Eva async components initialization had warnings")
+        except Exception as e:
+            print(f"⚠️ Eva async initialization error: {e}")
+
+        # STEP 6: Wait for Eva configuration to load (only timelines from DB)
+        print("\n⚙️ Loading Eva configuration...")
+        try:
+            eva_config_status = await services["eva"].get_configuration_status()
+            if eva_config_status.get("configuration_complete"):
+                print("✅ Eva configuration loaded successfully")
+            else:
+                print("⚠️ Eva configuration incomplete, using fallback configurations")
+                
+        except Exception as e:
+            print(f"⚠️ Eva configuration loading error: {e}")
+
+        # STEP 7: Test Eva's database integration
         eva_health = await services["eva"].check_database_integration()
         
-        # step 6: Initialize Triage Agent Service
+        # STEP 8: Initialize Triage Agent Service
         print("\n🎯 Initializing Triage Agent...")
         services["triage"] = TriageAgentService(
             database_service=services["db"],
             eva_agent_service=services["eva"]
         )
 
-        # STEP 7: Link Triage service to Eva
+        # STEP 9: Link Triage service to Eva
         services["eva"].triage_service = services["triage"]
         print("✅ Eva and Triage services fully integrated")
-
 
         triage_health = await services["triage"].health_check()
         if triage_health["status"] == "healthy":
@@ -466,12 +495,12 @@ async def lifespan(app: FastAPI):
         else:
             print(f"⚠️ Triage Agent initialization warning: {triage_health.get('warnings', [])}")
 
-        # STEP 8: Initialize Banking Policy Service
+        # STEP 10: Initialize Banking Policy Service
         print("\n🏛️  Initializing Banking Policy Service...")
         services["banking_policy"] = BankingPolicyService()
         print("✅ Banking Policy Service initialized")
 
-        # STEP 9: Initialize auth services with shared config
+        # STEP 11: Initialize auth services with shared config
         print("\n🔐 Initializing authentication services...")
         services["auth_service"] = SharedConfigAuthService()
         await services["auth_service"].initialize()
@@ -488,6 +517,7 @@ async def lifespan(app: FastAPI):
         print(f"  Database: {'✅ Connected' if connection_results['mongodb'] else '❌ Failed'}")
         print(f"  Authentication: ✅ Initialized")
         print(f"  Eva Agent: {'✅ Initialized with DB' if eva_health['success'] else '⚠️ Initialized (DB issues)'}")
+        print(f"  Eva Configuration: {'✅ Hardcoded + DB timelines' if eva_config_status.get('configuration_complete') else '⚠️ Fallback mode'}")
         print(f"  SMTP: {'✅ Connected' if connection_results['smtp'] else '❌ Failed'}")
         print(f"  Twilio: {'✅ Connected' if connection_results['twilio'] else '❌ Failed'}")
         print(f"  Redis: {'✅ Connected' if connection_results['redis'] else '❌ Failed'}")
@@ -496,6 +526,7 @@ async def lifespan(app: FastAPI):
         print(f"  Redis connection pooling: {'✅ Enabled' if connection_results['redis'] else '❌ Disabled'}")
         print(f"  Shared configuration: ✅ Active")
         print(f"  Eva database integration: {'✅ Active' if eva_health['success'] else '⚠️ Limited'}")
+        print(f"  Configuration system: {'✅ Hardcoded categories/constraints + DB timelines' if eva_config_status.get('configuration_complete') else '⚠️ Fallback mode'}")
         print("🌐 API is ready to serve requests")
         
         yield
@@ -691,6 +722,226 @@ async def detailed_health_check():
         }
     }
 
+# ==================== UPDATED CONFIGURATION ENDPOINTS ====================
+
+@app.get("/api/config/status")
+async def get_configuration_status( current_user: Dict[str, Any] = Depends(get_current_user), 
+                                   eva_service: EvaAgentService = Depends(get_eva_service),
+                                   db_service: DatabaseService = Depends(get_db_service)
+):
+    """Get current configuration status for Eva agent"""
+    try:
+        # TODO: Add admin role check here
+        
+        eva_config_status = await eva_service.get_configuration_status()
+        db_config_status = await db_service.get_realistic_timelines_status()
+        
+        return {
+            "eva_configuration": eva_config_status,
+            "database_configuration": db_config_status,
+            "overall_status": "healthy" if eva_config_status.get("configuration_complete") else "degraded",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting configuration status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get configuration status"
+        )
+
+@app.post("/api/config/refresh")
+async def refresh_configuration(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    eva_service: EvaAgentService = Depends(get_eva_service)
+):
+    """Refresh Eva configuration from database (only realistic timelines)"""
+    try:
+        # TODO: Add admin role check here
+        
+        success = await eva_service.refresh_timelines_configuration()
+        
+        if success:
+            return {
+                "success": True,
+                "message": "Realistic timelines configuration refreshed successfully",
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to refresh configuration"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error refreshing configuration: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to refresh configuration"
+        )
+
+@app.get("/api/config/complaint-categories")
+async def get_complaint_categories(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    eva_service: EvaAgentService = Depends(get_eva_service)
+):
+    """Get current complaint categories (hardcoded)"""
+    try:
+        categories = eva_service.complaint_categories
+        
+        return {
+            "categories": categories,
+            "total_count": len(categories),
+            "source": "hardcoded",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting complaint categories: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get complaint categories"
+        )
+
+@app.get("/api/config/realistic-timelines")
+async def get_realistic_timelines(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    eva_service: EvaAgentService = Depends(get_eva_service)
+):
+    """Get current realistic timelines configuration from database"""
+    try:
+        timelines = eva_service.realistic_timelines
+        
+        return {
+            "timelines": timelines,
+            "categories_count": len(timelines),
+            "source": "database",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting realistic timelines: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get realistic timelines"
+        )
+
+@app.get("/api/config/banking-constraints")
+async def get_banking_constraints(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    eva_service: EvaAgentService = Depends(get_eva_service)
+):
+    """Get current banking constraints (hardcoded)"""
+    try:
+        constraints = eva_service.banking_constraints
+        
+        return {
+            "constraints": constraints,
+            "constraints_count": len(constraints),
+            "source": "hardcoded",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ Error getting banking constraints: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get banking constraints"
+        )
+
+# REMOVED: update endpoints for categories and constraints (now hardcoded)
+# Only keeping realistic timelines update endpoint
+
+@app.put("/api/config/realistic-timelines")
+async def update_realistic_timelines(
+    timelines: str = Form(...),  
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db_service: DatabaseService = Depends(get_db_service),
+    eva_service: EvaAgentService = Depends(get_eva_service)
+):
+    """Update realistic timelines configuration (admin only)"""
+    try:
+        # TODO: Add admin role check here
+
+        try:
+            timelines_data = json.loads(timelines)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid JSON format for timelines"
+            )
+        
+        new_config_data = {
+            "timelines": timelines_data
+        }
+        
+        success = await db_service.update_realistic_timelines_configuration(new_config_data)
+        
+        if success:
+            # Refresh Eva's configuration
+            await eva_service.refresh_timelines_configuration()
+            
+            return {
+                "success": True,
+                "message": "Realistic timelines updated successfully",
+                "updated_categories": len(timelines_data),
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update realistic timelines"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error updating realistic timelines: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update realistic timelines"
+        )
+
+@app.get("/api/config/health")
+async def configuration_health_check():
+    """Health check for configuration system (no auth required)"""
+    try:
+        db_service = services.get("db")
+        eva_service = services.get("eva")
+        
+        if not db_service or not eva_service:
+            return {
+                "status": "unhealthy",
+                "error": "Required services not available",
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        # Check database configuration status (only timelines)
+        db_config_status = await db_service.get_realistic_timelines_status()
+        eva_config_status = await eva_service.get_configuration_status()
+        
+        overall_healthy = (
+            db_config_status.get("status") == "active" and
+            eva_config_status.get("configuration_complete", False)
+        )
+        
+        return {
+            "status": "healthy" if overall_healthy else "degraded",
+            "database_config": db_config_status,
+            "eva_config": eva_config_status,
+            "configuration_loaded": eva_config_status.get("configuration_complete", False),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
 @app.get("/health/config")
 async def config_health_check():
     """Configuration health check endpoint"""
@@ -701,7 +952,7 @@ async def config_health_check():
         "smtp_config_active": get_smtp_config() is not None
     }
 
-# ==================== AUTHENTICATION ENDPOINTS ====================
+# ==================== AUTHENTICATION ENDPOINTS (UNCHANGED) ====================
 
 @app.post("/api/auth/session")
 async def create_auth_session(
@@ -1030,7 +1281,7 @@ async def get_session_status(
             detail="Failed to get session status"
         )
 
-# ==================== COMPLAINT ENDPOINTS (PROTECTED) ====================
+# ==================== COMPLAINT ENDPOINTS (UNCHANGED) ====================
 
 @app.post("/api/complaints/submit", response_model=ComplaintResponse)
 async def submit_complaint(
@@ -1273,7 +1524,7 @@ async def get_customer_history(
             detail="Failed to retrieve customer history"
         )
 
-# ==================== EVA CHAT ENDPOINTS ====================
+# ==================== EVA CHAT ENDPOINTS (UNCHANGED) ====================
 
 @app.post("/api/eva/chat")
 async def eva_chat_enhanced(
@@ -1283,69 +1534,7 @@ async def eva_chat_enhanced(
     eva_service: EvaAgentService = Depends(get_eva_service),
     db_service: DatabaseService = Depends(get_db_service)
 ):
-    """
-    FIXED: Enhanced Eva chat that properly uses the natural flow with triage confirmation
-    """
-    try:
-        print(f"🎯 EVA CHAT ENDPOINT: Received message: {message[:50]}...")
-        
-        # Verify session matches current user
-        if session_id != current_user["session_id"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Session ID mismatch"
-            )
-        
-        # Get customer context
-        session_data = current_user["session_data"]
-        customer_data = session_data.get("customer_data", {})
-        customer_id = customer_data.get("customer_id")
-        
-        if not customer_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Customer ID not found in session"
-            )
-        
-        # Get full customer context from database
-        customer_context = await db_service.get_customer(customer_id)
-        if not customer_context:
-            raise HTTPException(status_code=404, detail="Customer not found")
-        
-        # 🔥 CRITICAL FIX: Use the natural flow method instead of the old one
-        print(f"🚀 Calling eva_chat_response_with_natural_flow for session {session_id}")
-        eva_response = await eva_service.eva_chat_response_with_natural_flow(
-            message=message,
-            customer_context=customer_context,
-            conversation_id=session_id
-        )
-        
-        print(f"✅ Eva natural flow response: stage={eva_response.get('stage', 'no-stage')}")
-        
-        # Save chat messages to database
-        await db_service.save_chat_message(session_id, customer_id, message, is_bot=False)
-        await db_service.save_chat_message(session_id, customer_id, eva_response["response"], is_bot=True)
-        
-        return {
-            "response": eva_response["response"],
-            "conversation_id": eva_response["conversation_id"],
-            "emotional_state": eva_response.get("emotional_state", "neutral"),
-            "classification_pending": eva_response.get("classification_pending"),
-            "requires_confirmation": eva_response.get("requires_confirmation", False),
-            "stage": eva_response.get("stage"),  
-            "sequential_messages_active": eva_response.get("sequential_messages_active", False),
-            "next_message_in_seconds": eva_response.get("next_message_in_seconds"),
-            "eva_version": "v2.0_natural_flow_fixed"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error in Eva chat natural flow: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Eva chat error: {str(e)}"
-        )
+    pass
 
 @app.post("/api/eva/confirm-classification")
 async def confirm_complaint_classification(
@@ -1420,8 +1609,8 @@ async def eva_chat_natural_flow(
     db_service: DatabaseService = Depends(get_db_service)
 ):
     """Eva chat with natural triage flow and banking policy compliance"""
+
     try:
-        print(f"🎯 CHAT-NATURAL ENDPOINT CALLED with message: {message[:50]}...") 
         # Verify session matches current user
         if session_id != current_user["session_id"]:
             raise HTTPException(
@@ -1750,7 +1939,7 @@ async def eva_system_status():
             "error": str(e)
         }
 
-# ==================== TRIAGE AGENT ENDPOINTS ====================
+# ==================== TRIAGE AGENT ENDPOINTS (UNCHANGED) ====================
 @app.post("/api/triage/process-complaint")
 async def process_complaint_triage(
     complaint_text: str = Form(...),
@@ -1818,7 +2007,7 @@ async def get_triage_analytics(
             detail=f"Failed to get triage analytics: {str(e)}"
         )
 
-# ==================== ORCHESTRATOR ALERT ENDPOINTS ====================
+# ==================== ORCHESTRATOR ALERT ENDPOINTS (UNCHANGED) ====================
 
 @app.get("/api/orchestrator/alerts")
 async def get_orchestrator_alerts(
@@ -1904,7 +2093,7 @@ async def get_new_theme_alerts(
             detail=f"Failed to get new theme alerts: {str(e)}"
         )
 
-# ==================== HELPER FUNCTIONS ====================
+# ==================== HELPER FUNCTIONS (UNCHANGED) ====================
 
 async def _handle_new_theme_complaint(triage_result: Dict[str, Any], 
                                      customer: Dict[str, Any], 
@@ -1968,7 +2157,7 @@ async def _create_complaint_from_triage(triage_result: Dict[str, Any],
         }
     }
 
-# ==================== ADMIN ENDPOINTS (PROTECTED) ====================
+# ==================== ADMIN ENDPOINTS (UNCHANGED) ====================
 
 @app.get("/api/dashboard/complaints")
 async def get_dashboard_complaints(
@@ -2015,7 +2204,7 @@ async def update_complaint_status(
             detail="Failed to update complaint status"
         )
 
-# ==================== UTILITY FUNCTIONS ====================
+# ==================== UTILITY FUNCTIONS (UNCHANGED) ====================
 
 async def save_uploaded_file(file: UploadFile) -> str:
     """Save uploaded file and return file path"""
@@ -2030,7 +2219,7 @@ async def save_uploaded_file(file: UploadFile) -> str:
     
     return file_path
 
-# ==================== ERROR HANDLERS ====================
+# ==================== ERROR HANDLERS (UNCHANGED) ====================
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):

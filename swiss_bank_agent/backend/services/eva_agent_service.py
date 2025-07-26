@@ -11,8 +11,53 @@ import os
 import asyncio
 from dotenv import load_dotenv
 import random
+from enum import Enum  
 
 load_dotenv()
+
+class ConversationStage(Enum):
+    """
+    Centralized definition of all conversation stages in Eva flow
+    """
+    INITIAL = "initial"
+    AWAITING_TRIAGE = "awaiting_triage_results"
+    TRIAGE_READY = "triage_results_ready"
+    TRIAGE_CONFIRMATION = "triage_confirmation_pending"
+    FOLLOW_UP_ACTIVE = "follow_up_questions_active"
+    FOLLOW_UP_COMPLETE = "follow_up_complete"
+    ACTION_SEQUENCE = "action_sequence"
+    ACTION_SEQUENCE_1 = "action_sequence_1"
+    ACTION_SEQUENCE_2 = "action_sequence_2"
+    ACTION_COMPLETE = "action_complete"
+    NORMAL_CHAT = "normal_chat"
+    TRIAGE_CORRECTION = "triage_correction_needed"
+    SEEKING_CLARIFICATION = "seeking_clarification"
+    CLASSIFICATION_CORRECTION = "classification_correction"
+    ANALYSIS_IN_PROGRESS = "analysis_in_progress"
+    ACTION_PROCESSING = "action_sequence_processing"
+    TRIAGE_FAILED = "triage_analysis_failed"
+    ERROR_STATE = "error_state"
+
+    @classmethod
+    def is_valid_stage(cls, stage: str) -> bool:
+        """Check if a stage string is valid"""
+        return stage in [s.value for s in cls]
+    
+    @classmethod
+    def get_next_valid_stages(cls, current_stage: str) -> List[str]:
+        """Get valid next stages from current stage"""
+        transitions = {
+            cls.INITIAL.value: [cls.AWAITING_TRIAGE.value, cls.NORMAL_CHAT.value],
+            cls.AWAITING_TRIAGE.value: [cls.TRIAGE_READY.value, cls.TRIAGE_FAILED.value],
+            cls.TRIAGE_READY.value: [cls.TRIAGE_CONFIRMATION.value],
+            cls.TRIAGE_CONFIRMATION.value: [cls.FOLLOW_UP_ACTIVE.value, cls.TRIAGE_CORRECTION.value],
+            cls.FOLLOW_UP_ACTIVE.value: [cls.FOLLOW_UP_COMPLETE.value],
+            cls.FOLLOW_UP_COMPLETE.value: [cls.ACTION_SEQUENCE.value],
+            cls.ACTION_SEQUENCE.value: [cls.ACTION_SEQUENCE_1.value, cls.ACTION_COMPLETE.value],
+            cls.ACTION_COMPLETE.value: [cls.NORMAL_CHAT.value],
+            cls.NORMAL_CHAT.value: [cls.AWAITING_TRIAGE.value, cls.INITIAL.value]
+        }
+        return transitions.get(current_stage, [])
 
 @dataclass
 class ConversationContext:
@@ -55,18 +100,13 @@ class EvaAgentService:
                 self.database_available = self.database_service._check_connection()
                 if self.database_available:
                     print("✅ Eva initialized with active database connection")
-                else:
-                    print("⚠️ Eva initialized but database not connected yet")
             except Exception as e:
                 print(f"⚠️ Eva database test failed: {e}")
                 self.database_available = False
         else:
             print("⚠️ Eva initialized without database service")
         
-        # Conversation memory storage (Requirement 1) - now with database backing
         self.conversation_contexts = {}
-        
-        # NEW: Conversation flow state management for natural flow
         self.conversation_states = {}
 
         # Learning system storage
@@ -80,7 +120,6 @@ class EvaAgentService:
         # Specialist name mappings (Requirement 5) - Enhanced with detailed credentials
         self.specialist_names = self._initialize_specialist_names()
         
-        # Swiss Bank complaint categories
         self.complaint_categories = [
             "fraudulent_activities_unauthorized_transactions",
             "account_freezes_holds_funds", 
@@ -89,7 +128,6 @@ class EvaAgentService:
             "bank_system_policy_failures",
             "atm_machine_issues",
             "check_related_issues",
-            "poor_customer_service_communication",
             "delays_fund_availability",
             "overdraft_issues",
             "online_banking_technical_security_issues",
@@ -99,52 +137,53 @@ class EvaAgentService:
             "ambiguity_unclear_unclassified",
             "debt_collection_harassment",
             "loan_issues_auto_personal_student",
-            "insurance_claim_denials_delays"
+            "insurance_claim_denials_delays",
+            "poor_customer_service_communication"
         ]
-    
-        # NEW: Banking policy constraints
+            
+        # HARDCODED: Banking policy constraints (no longer from database)
         self.banking_constraints = {
-            "no_instant_refunds": True,
-            "investigation_required": True,
-            "regulatory_compliance": True,
-            "documentation_protocols": True,
-            "provisional_credit_conditions": True
-        }
-
-        # NEW: Realistic timelines by complaint category
-        self.realistic_timelines = {
-            "fraudulent_activities_unauthorized_transactions": {
-                "security_action": "Immediate",
-                "investigation_start": "2-4 Working hours",
-                "provisional_credit_review": "1-3 business days",
-                "final_resolution": "3-5 business days",
-                "new_card_delivery": "24-48 hours"
+            "no_instant_refunds": {
+                "enabled": True,
+                "description": "Bank policy prevents instant refunds without investigation",
+                "exceptions": ["system_error_under_100", "verified_duplicate_charge"]
             },
-            "dispute_resolution_issues": {
-                "case_creation": "Immediate",
-                "investigation_start": "1-2 Working hours", 
-                "provisional_credit_review": "1-2  business days",
-                "final_resolution": "3-5 business days"
+            "investigation_required": {
+                "enabled": True,
+                "description": "All disputes require formal investigation process",
+                "minimum_investigation_time": "24_hours",
+                "exceptions": ["obvious_system_error"]
             },
-            "account_freezes_holds_funds": {
-                "security_review": "2-4 hours",
-                "documentation_review": "4-24 hours",
-                "access_restoration": "1-2 business days"
+            "regulatory_compliance": {
+                "enabled": True,
+                "description": "Must follow federal banking regulations for all transactions",
+                "applicable_regulations": ["Regulation E", "Regulation Z", "FCRA"]
             },
-            "online_banking_technical_security_issues": {
-                "security_check": "Immediate",
-                "technical_investigation": "2-4 hours",
-                "resolution": "4-24 hours"
+            "documentation_protocols": {
+                "enabled": True,
+                "description": "Specific documentation required for different complaint types",
+                "required_docs": {
+                    "fraud": ["police_report", "affidavit", "timeline"],
+                    "dispute": ["merchant_contact_proof", "receipts", "evidence"],
+                    "error": ["account_statements", "transaction_records"]
+                }
             },
-            "default": {
-                "initial_response": "2-4 hours",
-                "investigation": "1-2 business days", 
-                "resolution": "3-5 business days"
+            "provisional_credit_conditions": {
+                "enabled": True,
+                "description": "Provisional credit has specific eligibility requirements",
+                "conditions": [
+                    "reported_within_60_days",
+                    "amount_over_threshold",
+                    "customer_good_standing",
+                    "initial_investigation_complete"
+                ]
             }
         }
+
+        # Realistic timelines by complaint category
+        self.realistic_timelines = {}
         
-        print("✅ Eva initialized with natural flow and banking policy compliance")
-    
+        
     # ========================= Core Utility Methods ====================
 
     def _get_holidays_for_date(self, date_obj: datetime) -> List[str]:
@@ -176,33 +215,24 @@ class EvaAgentService:
         elif date_obj.day == 1:  # First of month
             return f"Welcome to {date_obj.strftime('%B')}!"
         else:
-            return ""
+            return "" 
         
-    def _detect_frustration(self, text: str) -> float:
-        frustration_words = ["frustrated", "annoyed", "tired of", "sick of", "enough", "ridiculous", "unacceptable"]
-        matches = sum(1 for word in frustration_words if word in text)
-        return min(matches * 0.3, 1.0)
-    
-    def _detect_anxiety(self, text: str) -> float:
-        anxiety_words = ["worried", "concerned", "scared", "nervous", "afraid", "anxious", "uncertain"]
-        matches = sum(1 for word in anxiety_words if word in text)
-        return min(matches * 0.35, 1.0)
-    
-    def _detect_anger(self, text: str) -> float:
-        anger_words = ["angry", "furious", "outraged", "livid", "mad", "disgusted", "demanding"]
-        matches = sum(1 for word in anger_words if word in text)
-        return min(matches * 0.4, 1.0)
-    
-    def _detect_happiness(self, text: str) -> float:
-        happy_words = ["thank you", "thanks", "amazing", "excellent", "wonderful", "great", "perfect", "helpful"]
-        matches = sum(1 for word in happy_words if word in text)
-        return min(matches * 0.4, 1.0)
-    
-    def _detect_confusion(self, text: str) -> float:
-        confusion_words = ["confused", "don't understand", "unclear", "what does this mean", "explain"]
-        matches = sum(1 for word in confusion_words if word in text)
-        return min(matches * 0.3, 1.0)
-    
+    async def initialize_async_components(self):
+        """Initialize async components after Eva is created"""
+        try:
+            # Load realistic timelines from database
+            await self._load_realistic_timelines_from_database()
+            
+            # Load learning weights if available
+            if self.database_available:
+                await self._load_learning_weights_async()
+                
+            return True
+        
+        except Exception as e:
+            print(f"⚠️ Error initializing Eva async components: {e}")
+            return False
+        
     def _get_realistic_alternatives(self, violations: List[str]) -> List[str]:
         """NEW: Get realistic alternatives for unrealistic promises"""
         alternatives = {
@@ -216,8 +246,8 @@ class EvaAgentService:
         return [alternatives.get(violation, "realistic timeline communication") for violation in violations]
     
     def _get_realistic_timeline(self, complaint_category: str) -> Dict[str, str]:
-        """NEW: Get realistic timeline for complaint category"""
-        return self.realistic_timelines.get(complaint_category, self.realistic_timelines["default"])
+        """Get realistic timeline for complaint category from database"""
+        return self.realistic_timelines.get(complaint_category, self.realistic_timelines.get("default", {}))
     
     def _calculate_accuracy_metrics(self) -> Dict[str, float]:
         """Calculate accuracy metrics from feedback history"""
@@ -244,12 +274,27 @@ class EvaAgentService:
             "dispute_resolution_issues": "Transaction dispute",
             "account_freezes_holds_funds": "Account access issue",
             "online_banking_technical_security_issues": "Online banking technical issue",
-            "poor_customer_service_communication": "Service quality concern",
             "mortgage_related_issues": "Mortgage or home loan concern",
             "credit_card_issues": "Credit card concern",
+            "bank_system_policy_failures": "Bank Policy failures",
             "overdraft_issues": "Overdraft or fee concern",
-            "ambiguity_unclear_unclassified": "General banking inquiry"
+            "poor_customer_service_communication": "Lack of communication",
+            "ambiguity_unclear_unclassified": "General banking inquiry",
+            "delays_fund_availability": "Payment processing issue",
+            "deposit_related_issues": "Deposit concern",
+            "atm_machine_issues": "ATM service issue",
+            "check_related_issues": "Check processing issue",
+            "discrimination_unfair_practices": "Service fairness concern",
+            "debt_collection_harassment": "Collection practices issue",
+            "loan_issues_auto_personal_student": "Loan servicing issue",
+            "insurance_claim_denials_delays": "Insurance claim issue"
         }
+        # ✅ DEBUG: Print translation lookup
+        print(f"\n🔍 CATEGORY TRANSLATION:")
+        print(f"  Input category: '{category}'")
+        print(f"  Found translation: {'Yes' if category in translations else 'No'}")
+        print(f"  Output: '{translations.get(category, 'Banking service inquiry')}'")
+        
         return translations.get(category, "Banking service inquiry")
     
     def _initialize_specialist_names(self) -> Dict[str, List[Dict[str, str]]]:
@@ -265,7 +310,7 @@ class EvaAgentService:
                 {"name": "Kevin Wu", "title": "Senior Dispute Analyst", "experience": "7 years", "specialty": "merchant transaction disputes", "success_rate": "93%"},
                 {"name": "Amanda Foster", "title": "Dispute Resolution Manager", "experience": "11 years", "specialty": "complex dispute cases", "success_rate": "97%"}
             ],
-            "mortgage_related_issues": [
+            "account_freezes_holds_funds": [
                 {"name": "David Rodriguez", "title": "Senior Mortgage Specialist", "experience": "12 years", "specialty": "loan modification and refinancing", "success_rate": "94%"},
                 {"name": "Emily Zhang", "title": "Mortgage Resolution Specialist", "experience": "8 years", "specialty": "payment assistance programs", "success_rate": "92%"},
                 {"name": "Christopher Lee", "title": "Home Loan Advisor", "experience": "10 years", "specialty": "foreclosure prevention", "success_rate": "96%"}
@@ -275,17 +320,17 @@ class EvaAgentService:
                 {"name": "Steven Garcia", "title": "Customer Relations Supervisor", "experience": "9 years", "specialty": "complaint resolution", "success_rate": "95%"},
                 {"name": "Michelle Adams", "title": "Senior Customer Advocate", "experience": "8 years", "specialty": "relationship management", "success_rate": "97%"}
             ],
-            "technical": [
+            "online_banking_technical_security_issues": [
                 {"name": "Sarah Johnson", "title": "Technical Support Lead", "experience": "7 years", "specialty": "online banking systems", "success_rate": "94%"},
                 {"name": "Mike Chen", "title": "IT Support Specialist", "experience": "5 years", "specialty": "mobile app issues", "success_rate": "92%"},
                 {"name": "Emma Rodriguez", "title": "Systems Analyst", "experience": "6 years", "specialty": "platform integration", "success_rate": "95%"}
             ],
-            "billing": [
+            "mortgage_related_issues": [
                 {"name": "David Park", "title": "Billing Specialist", "experience": "9 years", "specialty": "fee disputes and adjustments", "success_rate": "96%"},
                 {"name": "Lisa Wang", "title": "Account Resolution Expert", "experience": "7 years", "specialty": "payment processing issues", "success_rate": "94%"},
                 {"name": "James Miller", "title": "Financial Services Advisor", "experience": "10 years", "specialty": "account reconciliation", "success_rate": "97%"}
             ],
-            "account": [
+            "credit_card_issues": [
                 {"name": "Rachel Green", "title": "Account Manager", "experience": "8 years", "specialty": "account access and security", "success_rate": "95%"},
                 {"name": "Tom Wilson", "title": "Customer Account Specialist", "experience": "6 years", "specialty": "profile and settings management", "success_rate": "93%"},
                 {"name": "Anna Smith", "title": "Banking Services Coordinator", "experience": "9 years", "specialty": "account setup and maintenance", "success_rate": "96%"}
@@ -306,6 +351,80 @@ class EvaAgentService:
         except Exception as e:
             print(f"⚠️ Failed to load learning weights: {e}")
 
+    async def _load_realistic_timelines_from_database(self):
+        """Load realistic timelines from database on startup"""
+        try:
+            if not self.database_available or not self.database_service:
+                print("⚠️ Database not available, using fallback timelines")
+                self.realistic_timelines = self._get_fallback_timelines()
+                return
+            
+            # Load realistic timelines from database
+            self.realistic_timelines = await self.database_service.get_realistic_timelines()
+            print(f"✅ Loaded realistic timelines from database: {len(self.realistic_timelines)} categories")
+            
+        except Exception as e:
+            print(f"⚠️ Failed to load realistic timelines from database: {e}")
+            print("📚 Using fallback timelines")
+            self.realistic_timelines = self._get_fallback_timelines()
+
+    def _get_fallback_timelines(self) -> Dict[str, Dict[str, str]]:
+        """Fallback timelines if database is unavailable"""
+        return {
+            "fraudulent_activities_unauthorized_transactions": {
+                "security_action": "Immediate",
+                "investigation_start": "2-4 Working hours",
+                "provisional_credit_review": "1-3 business days",
+                "final_resolution": "3-5 business days",
+                "new_card_delivery": "24-48 hours"
+            },
+            "dispute_resolution_issues": {
+                "case_creation": "Immediate",
+                "investigation_start": "1-2 Working hours", 
+                "provisional_credit_review": "1-2 business days",
+                "final_resolution": "3-5 business days",
+                "appeal_process": "5-10 business days"
+            },
+            "default": {
+                "initial_response": "2-4 hours",
+                "investigation": "1-2 business days", 
+                "resolution": "3-5 business days"
+            }
+        }
+
+    async def refresh_timelines_configuration(self) -> bool:
+        """Refresh ONLY realistic timelines from database"""
+        try:
+            await self._load_realistic_timelines_from_database()
+            return True
+        except Exception as e:
+            print(f"❌ Failed to refresh realistic timelines: {e}")
+            return False
+    # ==================== CONFIGURATION FROM DATABASE ====================
+        
+    async def get_configuration_status(self) -> Dict[str, Any]:
+        """Get current configuration status"""
+        try:
+            return {
+                "database_available": self.database_available,
+                "loaded_categories": len(self.complaint_categories),
+                "loaded_timelines": len(self.realistic_timelines),
+                "loaded_constraints": len(self.banking_constraints),
+                "configuration_source": {
+                    "categories": "hardcoded",
+                    "constraints": "hardcoded", 
+                    "timelines": "database" if self.database_available else "fallback"
+                },
+                "configuration_complete": (
+                    len(self.complaint_categories) > 0 and 
+                    len(self.realistic_timelines) > 0 and 
+                    len(self.banking_constraints) > 0
+                )
+            }
+        except Exception as e:
+            print(f"❌ Error getting configuration status: {e}")
+            raise e
+
     # ==================== EXTERNAL API & DATABASE METHODS ====================
 
     async def _call_anthropic(self, prompt: str) -> str:
@@ -313,7 +432,7 @@ class EvaAgentService:
         try:
             response = self.anthropic_client.messages.create(
                 model="claude-sonnet-4-20250514",
-                max_tokens=2000,  # Allow longer responses for natural conversation
+                max_tokens=1500,  # Allow longer responses for natural conversation
                 temperature=0.7,  # Higher temperature for more natural responses
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -337,9 +456,6 @@ class EvaAgentService:
             weights_data = await self.database_service.get_eva_learning_weights()
             if weights_data:
                 self.classification_weights = weights_data.get("classification_weights", {})
-                print(f"✅ Loaded {len(self.classification_weights)} learning weights from database")
-            else:
-                print("📚 No existing learning weights found, starting fresh")
                 
         except Exception as e:
             print(f"⚠️ Failed to load learning weights: {e}")
@@ -368,45 +484,6 @@ class EvaAgentService:
         
     # ==================== ANALYSIS & HELPER METHODS ====================
     
-    async def _analyze_emotion(self, message: str) -> str:
-        """Simple emotion analysis for message storage"""
-        message_lower = message.lower()
-        
-        if any(word in message_lower for word in ["angry", "furious", "mad"]):
-            return "angry"
-        elif any(word in message_lower for word in ["frustrated", "annoyed"]):
-            return "frustrated" 
-        elif any(word in message_lower for word in ["worried", "concerned", "scared"]):
-            return "anxious"
-        elif any(word in message_lower for word in ["thank", "thanks", "great", "excellent"]):
-            return "happy"
-        else:
-            return "neutral"
-        
-    async def _analyze_customer_emotion(self, message: str, context: ConversationContext) -> Dict[str, Any]:
-        """Requirement 3: Advanced emotional intelligence"""
-        
-        message_lower = message.lower()
-        
-        # Emotion detection patterns
-        emotions = {
-            "frustrated": self._detect_frustration(message_lower),
-            "anxious": self._detect_anxiety(message_lower), 
-            "angry": self._detect_anger(message_lower),
-            "happy": self._detect_happiness(message_lower),
-            "confused": self._detect_confusion(message_lower)
-        }
-        
-        # Determine primary emotion
-        primary_emotion = max(emotions.items(), key=lambda x: x[1])
-        
-        return {
-            "primary_emotion": primary_emotion[0] if primary_emotion[1] > 0 else "neutral",
-            "emotion_intensity": "high" if primary_emotion[1] > 0.7 else "medium" if primary_emotion[1] > 0.3 else "low",
-            "emotions_detected": emotions,
-            "empathy_needed": primary_emotion[1] > 0.3
-        }
-    
     def _analyze_customer_confirmation(self, message: str) -> Dict[str, Any]:
         """NEW: Analyze customer's confirmation response"""
         message_lower = message.lower()
@@ -421,19 +498,260 @@ class EvaAgentService:
         else:
             return {"confirmed": False, "needs_correction": False}
         
-    async def _is_complaint(self, message: str) -> bool:
-        """Detect if message contains a complaint"""
-        complaint_indicators = [
-            "problem", "issue", "complaint", "wrong", "error", "frustrated", 
-            "unauthorized", "dispute", "denied", "refused", "terrible", 
-            "awful", "unacceptable", "fraud", "stolen", "locked", "frozen",
-            "furious", "charges", "never made", "angry"
-        ]
+    async def _analyze_message_with_context(self, message: str, conversation_context: Optional[ConversationContext]) -> Dict[str, Any]:
+        """YOUR SUPERIOR APPROACH: Natural analysis + structured output in one prompt"""
         
-        message_lower = message.lower()
-        result = any(indicator in message_lower for indicator in complaint_indicators)
-        print(f"🔍 COMPLAINT CHECK: '{message_lower[:50]}...' -> {result}")
-        return result
+        # Build conversation context (your existing logic)
+        recent_messages = []
+        has_active_complaint = False
+        
+        if conversation_context and conversation_context.messages:
+            recent_messages = conversation_context.messages[-3:]
+            has_active_complaint = any(
+                'complaint' in msg.get('content', '').lower() or 
+                msg.get('classification_pending') or
+                'investigation' in msg.get('content', '').lower()
+                for msg in recent_messages
+            )
+        
+        conversation_summary = ""
+        if recent_messages:
+            conversation_summary = "\n".join([
+                f"{'Customer' if msg.get('role') == 'customer' else 'Agent'}: {msg.get('content', '')[:100]}..."
+                for msg in recent_messages
+            ])
+        
+        # YOUR BRILLIANT UNIFIED PROMPT
+        prompt = f"""
+    You're analyzing a customer service message in the banking sector. Think through this naturally and then provide your structured assessment.
+
+    Context:
+    - There's {'an active complaint in progress' if has_active_complaint else 'no active complaint'}
+    - Recent conversation: {conversation_summary if conversation_summary else 'This is the start of the conversation'}
+
+    Customer's current message: "{message}"
+
+    First, think about this step by step:
+    1. What is the customer trying to communicate?
+    2. How are they feeling emotionally? What's their emotional state and intensity?
+    3. Is this a new issue or related to something ongoing?
+    4. What level of urgency do you sense?
+    5. Is there any financial impact or urgency involved?
+    6. Do they need empathy and careful handling?
+
+    Based on your natural analysis above, now provide your assessment in this exact structure strictly:
+
+    MESSAGE_TYPE: [NEW_COMPLAINT|ADDITIONAL_INFO|FOLLOW_UP|INQUIRY|CONFIRMATION|COMPLIMENT]
+    IS_COMPLAINT: [true|false]
+    CONFIDENCE: [0.XX]
+    REQUIRES_IMMEDIATE_ATTENTION: [true|false]
+
+    PRIMARY_EMOTION: [frustrated|anxious|angry|happy|confused|neutral]
+    EMOTION_INTENSITY: [low|medium|high]
+    EMPATHY_NEEDED: [true|false]
+    EMOTIONAL_TONE: [urgent|calm|distressed|appreciative|neutral]
+
+    FRUSTRATED_SCORE: [0.X]
+    ANXIOUS_SCORE: [0.X]
+    ANGRY_SCORE: [0.X]
+    HAPPY_SCORE: [0.X]
+    CONFUSED_SCORE: [0.X]
+
+    FINANCIAL_IMPACT: [true|false]
+    TIME_SENSITIVITY: [immediate|hours|days|normal]
+    URGENCY_FACTORS: [comma,separated,list]
+    EMOTIONAL_INDICATORS: [comma,separated,words,from,message]
+
+
+    Note: Think like a human customer service expert, then fill in the structure based on your natural understanding.
+    """
+        
+        try:
+            response = await self._call_anthropic(prompt)
+            
+            # YOUR APPROACH: Extract structured data directly from Claude's structured response
+            return self._parse_structured_response(response, message, has_active_complaint)
+                
+        except Exception as e:
+            error_details = {
+                "error_type": "EVA_AGENT_CORE_FAILURE",
+                "function": "_analyze_message_with_context",
+                "error_message": str(e),
+                "customer_message": message[:100],  
+                "conversation_id": conversation_context.conversation_id if conversation_context else "unknown",
+                "customer_id": conversation_context.customer_id if conversation_context else "unknown",
+                "timestamp": datetime.now().isoformat(),
+                "severity": "CRITICAL",
+                "impact": "Customer cannot receive AI-powered analysis",
+                "action_required": "Immediate intervention - Eva agent core intelligence failing"
+            }
+            
+            # Log to console for immediate visibility
+            print(f"🚨 CRITICAL EVA AGENT FAILURE: {error_details}")
+            
+            # Store in database for alerting if available
+            if self.database_available and self.database_service:
+                try:
+                    await self.database_service.store_critical_error(error_details)
+                    print("✅ Critical error logged to database for alerting")
+                except Exception as db_error:
+                    print(f"❌ DOUBLE FAILURE: Could not log critical error to database: {db_error}")
+            
+            # This prevents masking the failure and forces proper error handling upstream
+            raise RuntimeError(f"Eva agent core analysis failed: {str(e)}") from e
+
+
+    def _parse_structured_response(self, response: str, message: str, has_active_complaint: bool) -> Dict[str, Any]:
+        """Parse Claude's structured response efficiently"""
+        # Extract values using simple parsing - Claude follows the structure we asked for
+        parsed_data = {}
+        
+        # Parse each field
+        parsed_data["message_type"] = self._extract_field_value(response, "MESSAGE_TYPE", "INQUIRY")
+        parsed_data["is_complaint"] = self._extract_boolean_field(response, "IS_COMPLAINT", False)
+        parsed_data["confidence"] = self._extract_float_field(response, "CONFIDENCE", 0.8)
+        parsed_data["requires_immediate_attention"] = self._extract_boolean_field(response, "REQUIRES_IMMEDIATE_ATTENTION", False)
+        
+        # Emotional analysis
+        primary_emotion = self._extract_field_value(response, "PRIMARY_EMOTION", "neutral")
+        emotion_intensity = self._extract_field_value(response, "EMOTION_INTENSITY", "medium")
+        empathy_needed = self._extract_boolean_field(response, "EMPATHY_NEEDED", False)
+        emotional_tone = self._extract_field_value(response, "EMOTIONAL_TONE", "neutral")
+        
+        # Emotion scores
+        emotions_detected = {
+            "frustrated": self._extract_float_field(response, "FRUSTRATED_SCORE", 0.0),
+            "anxious": self._extract_float_field(response, "ANXIOUS_SCORE", 0.0),
+            "angry": self._extract_float_field(response, "ANGRY_SCORE", 0.0),
+            "happy": self._extract_float_field(response, "HAPPY_SCORE", 0.0),
+            "confused": self._extract_float_field(response, "CONFUSED_SCORE", 0.0)
+        }
+        
+        # Additional insights
+        financial_impact = self._extract_boolean_field(response, "FINANCIAL_IMPACT", False)
+        time_sensitivity = self._extract_field_value(response, "TIME_SENSITIVITY", "normal")
+        urgency_factors = self._extract_list_field(response, "URGENCY_FACTORS")
+        emotional_indicators = self._extract_list_field(response, "EMOTIONAL_INDICATORS")
+        reasoning = self._extract_field_value(response, "REASONING", "Analysis completed")
+        
+        return {
+            # Message classification
+            "message_type": parsed_data["message_type"],
+            "is_complaint": parsed_data["is_complaint"],
+            "confidence": parsed_data["confidence"],
+            "requires_immediate_attention": parsed_data["requires_immediate_attention"],
+            
+            # Emotional analysis (replaces your old hard-coded methods)
+            "emotional_analysis": {
+                "primary_emotion": primary_emotion,
+                "emotion_intensity": emotion_intensity,
+                "empathy_needed": empathy_needed,
+                "emotional_indicators": emotional_indicators,
+                "tone": emotional_tone,
+                "emotions_detected": emotions_detected
+            },
+            
+            # Additional insights
+            "urgency_factors": urgency_factors,
+            "financial_impact": financial_impact,
+            "time_sensitivity": time_sensitivity,
+            "reasoning": reasoning
+        }
+            
+    async def _is_complaint(self, message: str, conversation_context: Optional[ConversationContext] = None) -> bool:
+
+        # Get conversation state for flow control
+        conversation_id = conversation_context.conversation_id if conversation_context else "unknown"
+        current_state = self.conversation_states.get(conversation_id, {"stage": ConversationStage.INITIAL.value})
+        stage = current_state.get("stage", ConversationStage.INITIAL.value)
+        
+        # CRITICAL: Only check for NEW complaints in initial stage
+        # This prevents treating follow-up responses as new complaints
+
+        if stage != "initial":
+            print(f"🔄 Stage '{stage}' - NOT checking for new complaints (conversation in progress)")
+            return False
+        
+        try:
+            # Use the unified comprehensive analysis
+            comprehensive_analysis = await self._analyze_message_with_context(message, conversation_context)
+            
+            # Extract complaint indicators from the comprehensive analysis
+            message_type = comprehensive_analysis.get('message_type', 'INQUIRY')
+            is_complaint = comprehensive_analysis.get('is_complaint', False)
+            confidence = comprehensive_analysis.get('confidence', 0.0)
+            requires_attention = comprehensive_analysis.get('requires_immediate_attention', False)
+            
+            # Enhanced complaint detection logic
+            complaint_detected = (
+                message_type == 'NEW_COMPLAINT' and 
+                is_complaint and 
+                confidence >= 0.7
+            )
+            
+            # Additional validation for high-confidence complaints
+            if complaint_detected:              
+                return True
+            else:
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error in enhanced complaint detection: {e}")
+            return False
+            
+
+    def _extract_field_value(self, response: str, field_name: str, default_value: str) -> str:
+        """Extract field value from structured response"""
+        import re
+        
+        pattern = f"{field_name}:\\s*\\[?([^\\]\\n]+)\\]?"
+        match = re.search(pattern, response, re.IGNORECASE)
+        
+        if match:
+            value = match.group(1).strip()
+            # Clean up the value
+            value = value.replace('[', '').replace(']', '').strip()
+            return value if value else default_value
+        
+        return default_value
+
+    def _extract_boolean_field(self, response: str, field_name: str, default_value: bool) -> bool:
+        """Extract boolean field from structured response"""
+        value = self._extract_field_value(response, field_name, str(default_value))
+        return value.lower() in ['true', 'yes', '1']
+
+    def _extract_float_field(self, response: str, field_name: str, default_value: float) -> float:
+        """Extract float field from structured response"""
+        value = self._extract_field_value(response, field_name, str(default_value))
+        try:
+            return float(value)
+        except ValueError:
+            return default_value
+
+    def _extract_list_field(self, response: str, field_name: str) -> List[str]:
+        """Extract comma-separated list from structured response"""
+        value = self._extract_field_value(response, field_name, "")
+        if not value or value.lower() in ['none', 'null', 'empty']:
+            return []
+        
+        # Split by comma and clean up
+        items = [item.strip() for item in value.split(',') if item.strip()]
+        return items
+
+    async def _analyze_customer_emotion(self, message: str, context: ConversationContext) -> Dict[str, Any]:
+        """Use unified analysis - much more efficient"""
+        comprehensive_analysis = await self._analyze_message_with_context(message, context)
+        return comprehensive_analysis.get("emotional_analysis", {
+            "primary_emotion": "neutral",
+            "emotion_intensity": "medium", 
+            "emotions_detected": {},
+            "empathy_needed": False
+        })
+
+    async def _analyze_emotion(self, message: str) -> str:
+        """Simple emotion analysis using unified intelligence"""
+        comprehensive_analysis = await self._analyze_message_with_context(message, None)
+        return comprehensive_analysis.get("emotional_analysis", {}).get("primary_emotion", "neutral")
     
     def _validate_response_promises(self, response_text: str) -> Dict[str, Any]:
         """
@@ -493,7 +811,7 @@ class EvaAgentService:
         
         if holidays:
             holiday_name = holidays[0]
-            return f"Hi {customer_name}, {holiday_name}! I'm Eva, your personal relationship manager at Swiss Bank. How can I help you today?"
+            return f"Hello {customer_name}, {holiday_name}! I'm Eva, your personal relationship manager at Swiss Bank. How can I help you today?"
         elif recent_complaints:
             # Customer has recent issues
             return f"""{time_greeting}, {customer_name}! I see you've been in touch with us recently about some concerns. I'm Eva, your dedicated customer service assistant, and I'm here to make sure we resolve everything quickly and thoroughly.
@@ -569,7 +887,6 @@ What can I help you with today?"""
     async def _generate_fallback_response(self, customer_context: Dict[str, Any]) -> str:
         """
         Generate fallback response when errors occur in Eva processing
-        This function should be placed after the _analyze_emotion method
         """
         customer_name = customer_context.get("name", "valued customer")
         
@@ -594,10 +911,10 @@ What can I help you with today?"""
         
         else:
             return f"""
-            I apologize, {customer_name}. I'm experiencing a brief technical issue that's preventing me from helping you properly right now.
+            I apologize, {customer_name}. I'm experiencing a brief technical issue that's preventing me from helping you properly right now, allow me a moment.
             
             **Here are your immediate options:**
-            • Call our customer service line at 1-800-SWISS-BANK for immediate assistance
+            • Call our customer service line at 1-800-5672-721 for immediate assistance
             • Try chatting with me again in a few moments
             • Visit any Swiss Bank branch for in-person help
             
@@ -861,8 +1178,7 @@ Respond with JSON:
                     
             except Exception as e:
                 print(f"⚠️ Error storing conversation context: {e}")
-                # Don't fail the entire operation if database storage fails
-    
+                
     async def _get_or_create_conversation_context(self, conversation_id: str, 
                                                  customer_context: Dict[str, Any]) -> ConversationContext:
         """Requirement 1: Get or create conversation context with database backing"""
@@ -1056,7 +1372,6 @@ Respond as Eva with complete naturalness and professionalism.
     def _get_specialist_for_category(self, primary_category: str, customer_id: Optional[str] = None) -> Dict[str, str]:
         """
         Get specialist assignment for category with consistent assignment
-        Place this method after _generate_triage_confirmation_response method
         """
         # Map category to specialist type
         if primary_category in self.specialist_names:
@@ -1068,13 +1383,11 @@ Respond as Eva with complete naturalness and professionalism.
         
         # Use customer ID for consistent assignment if provided
         if customer_id and specialists:
-            import hashlib
             index = int(hashlib.md5(customer_id.encode()).hexdigest(), 16) % len(specialists)
             return specialists[index]
         elif specialists:
             return specialists[0]
         else:
-            # Ultimate fallback
             return {
                 "name": "Customer Service Team",
                 "title": "Customer Service Representative",
@@ -1085,9 +1398,8 @@ Respond as Eva with complete naturalness and professionalism.
         """Assign consistent realistic specialist name (Requirement 5)"""
         
         if category not in self.specialist_names:
-            # Fallback to general category
             category = "general"
-        
+
         # Use complaint ID for consistent assignment
         specialists = self.specialist_names[category]
         index = int(hashlib.md5(complaint_id.encode()).hexdigest(), 16) % len(specialists)
@@ -1098,7 +1410,6 @@ Respond as Eva with complete naturalness and professionalism.
                                                    customer_context: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate triage confirmation response for customer
-        Place this method after _generate_fallback_response method
         """
         customer_name = customer_context.get("name", "valued customer")
         
@@ -1129,15 +1440,15 @@ Respond as Eva with complete naturalness and professionalism.
         
         **Here's what our analysis shows:**
         
-        **Issue Classification:** {friendly_category}
-        **Priority Level:** {urgency_level.title()} priority
-        **Confidence:** {confidence:.0%} match to our resolution protocols
-        **Assigned Specialist:** {specialist['name']}, {specialist['title']} 
-        **Expected Timeline:** {estimated_resolution}
+        Issue Classification: {friendly_category}
+        Priority Level: {urgency_level.title()} priority
+        Confidence: {confidence:.0%} match to our resolution protocols
+        Assigned Specialist: {specialist['name']}, {specialist['title']} 
+        Expected Timeline: {estimated_resolution}
         
         Based on your description, this looks like {friendly_category.lower()} that our {specialist['title'].lower()} handles regularly.
         
-        **Does this assessment sound accurate to you?** 
+        Does this assessment sound accurate to you?
         
         I want to make sure we're addressing exactly what you're experiencing before I outline our next steps.
         
@@ -1419,7 +1730,7 @@ Respond as Eva with complete naturalness and professionalism.
     async def _initiate_follow_up_questions(self, context: ConversationContext, 
                                           conversation_id: str) -> Dict[str, Any]:
         """
-        NEW: Start dynamic follow-up questions
+        Start dynamic follow-up questions
         """
         conversation_state = self.conversation_states[conversation_id]
         triage_results = conversation_state["triage_results"]
@@ -1622,6 +1933,18 @@ Respond as Eva with complete naturalness and professionalism.
                 "analysis_complete_time": datetime.now().isoformat()
             })      
 
+    async def _auto_present_triage_results(self, conversation_id: str):
+        """Auto-present triage results after 3 seconds"""
+        await asyncio.sleep(3)
+
+        try:
+            conversation_state = self.conversation_states.get(conversation_id, {})
+            if conversation_state.get("stage") == "triage_results_ready":
+                conversation_state["auto_presentation_ready"] = True
+                print(f"✅ Auto-presentation ready for {conversation_id}")
+        except Exception as e:
+            print(f"❌ Auto-presentation error: {e}")
+
     async def _handle_initial_complaint_with_triage(self, message: str, context: ConversationContext, 
                                                    conversation_id: str) -> Dict[str, Any]:
         """
@@ -1755,6 +2078,40 @@ Respond as Eva with complete naturalness and professionalism.
             "confidence_adjustment": feedback_analysis.get("confidence_adjustment", 0)
         }
 
+    def _analyze_customer_feedback(self, customer_response: str) -> Dict[str, Any]:
+        """Analyze customer feedback to determine learning signals"""
+        
+        response_lower = customer_response.lower()
+        
+        if any(phrase in response_lower for phrase in ["exactly right", "perfect", "correct", "yes that's it"]):
+            return {
+                "feedback_type": "confirmed",
+                "learning_weight": 1.0,
+                "reward_signal": 1.0,
+                "confidence_adjustment": 0.05
+            }
+        elif any(phrase in response_lower for phrase in ["completely wrong", "not right", "disagree"]):
+            return {
+                "feedback_type": "major_correction", 
+                "learning_weight": 1.0,
+                "reward_signal": -0.5,
+                "confidence_adjustment": -0.1
+            }
+        elif any(phrase in response_lower for phrase in ["partially", "sort of", "close but"]):
+            return {
+                "feedback_type": "partial_correction",
+                "learning_weight": 0.7,
+                "reward_signal": 0.5,
+                "confidence_adjustment": 0.02
+            }
+        else:
+            return {
+                "feedback_type": "unclear",
+                "learning_weight": 0.3,
+                "reward_signal": 0.0,
+                "confidence_adjustment": 0.0
+            }
+    
     # ========================= MAIN API METHODS ====================
 
     async def _format_response_with_bullets(self, response: str, context: ConversationContext) -> str:
@@ -1857,10 +2214,7 @@ I want to make sure our resolution plan addresses exactly what matters most to y
     
     async def eva_chat_response(self, message: str, customer_context: Dict[str, Any], 
                                conversation_id: str) -> Dict[str, Any]:
-        """
-        Main Eva chat response with all 5 requirements implemented
-        FIXED VERSION with proper database integration
-        """
+    
         try:
             # Requirement 1: Conversation Memory Management (now with database backing)
             context = await self._get_or_create_conversation_context(
@@ -2057,32 +2411,22 @@ I want to make sure our resolution plan addresses exactly what matters most to y
             return "Is there anything else about your situation that you think would be important for us to know?"
 
     async def _handle_follow_up_questions_enhanced(self, message: str, context: ConversationContext, 
-                                         conversation_id: str) -> Dict[str, Any]:
+                                     conversation_id: str) -> Dict[str, Any]:
         """
-        FIXED: Handle follow-up questions without duplication
+        FIXED: Handle follow-up questions with generalized question generation
         """
         conversation_state = self.conversation_states[conversation_id]
         customer_name = context.customer_name
         
-        # ✅ NEW: Check if this is the first response after triage confirmation
-        first_question_included = conversation_state.get("first_question_included_in_response", False)
         current_questions_asked = conversation_state.get("questions_asked", 0)
+        max_questions = conversation_state.get("max_questions", 3)
         
-        # If first question was included in the triage confirmation response, this is actually question 1
-        if first_question_included and current_questions_asked == 0:
-            actual_question_number = 1
-            # Clear the flag and update the count
-            conversation_state["first_question_included_in_response"] = False
-            conversation_state["questions_asked"] = 1
-        else:
-            actual_question_number = current_questions_asked
-
-        # Store customer response to the current question
+        # Store customer response
         if "gathered_additional_info" not in conversation_state:
             conversation_state["gathered_additional_info"] = []
         
         conversation_state["gathered_additional_info"].append({
-            "question_number": actual_question_number,
+            "question_number": current_questions_asked,
             "response": message,
             "timestamp": datetime.now().isoformat()
         })
@@ -2095,21 +2439,22 @@ I want to make sure our resolution plan addresses exactly what matters most to y
         ]
         
         customer_done = any(indicator in message.lower() for indicator in completion_indicators)
-        max_questions = conversation_state.get("max_questions", 3)
         
-        # Check if we should continue or wrap up
-        if customer_done or actual_question_number >= max_questions:
+        if customer_done or current_questions_asked >= max_questions:
             # Complete follow-up phase
-            completion_message = f"""Thank you, {customer_name}. I believe we have everything needed for this complaint. Our investigation team has access to your account transactions, documents, and all the details you've provided.
+            completion_message = f"""Thank you, {customer_name}. I have all the information needed for our investigation team.
 
-    If we need any further clarification during the investigation, we'll contact you directly.
+    **What happens next:**
+    - Our specialist will review your case within 2 hours
+    - You'll receive a call with preliminary findings  
+    - We'll keep you updated throughout the investigation process
 
-    Let me now outline exactly what we're doing to resolve your situation..."""
+    Is there anything else I can help you with regarding this case or any other banking needs?"""
 
-            # Update state to move to action sequence
+            # Update state to normal chat
             self.conversation_states[conversation_id].update({
-                "stage": "follow_up_complete",
-                "ready_for_action_sequence": True
+                "stage": "normal_chat",
+                "follow_up_complete": True
             })
             
             return {
@@ -2118,25 +2463,136 @@ I want to make sure our resolution plan addresses exactly what matters most to y
                 "stage": "follow_up_complete"
             }
         else:
-            # Ask next question
-            next_question_number = actual_question_number + 1
-            next_question = self._get_question_by_number(
-                next_question_number, 
-                conversation_state.get("current_question_category", "general"),
+            # ✅ GENERALIZED: Ask next question using AI
+            next_question_number = current_questions_asked + 1
+            
+            # Generate question dynamically based on context
+            next_question = await self._generate_dynamic_followup_question(
+                next_question_number,
+                conversation_state,
                 conversation_state["gathered_additional_info"]
             )
             
             # Update questions asked count
             conversation_state["questions_asked"] = next_question_number
             
-            # ✅ CRITICAL FIX: Keep the stage as "follow_up_questions_active" to prevent re-triggering
             return {
                 "response": next_question,
                 "conversation_id": conversation_id,
-                "stage": "follow_up_questions_active",  # ✅ Changed from "follow_up_questions" to "follow_up_questions_active"
+                "stage": "follow_up_questions_active", 
                 "question_number": next_question_number
             }
+
+    async def _get_first_question_by_category_generalized(self, conversation_state: Dict[str, Any]) -> str:
+        """
+        GENERALIZED: Generate first follow-up question using AI
+        """
+        try:
+            # Use the same dynamic generation for first question
+            return await self._generate_dynamic_followup_question(
+                1, 
+                conversation_state, 
+                []  # No previous responses for first question
+            )
+        except Exception as e:
+            print(f"❌ Error generating first question: {e}")
+            return "Can you provide more details that would help our investigation team resolve this issue effectively?"
         
+    async def _generate_dynamic_followup_question(self, question_number: int, 
+                                            conversation_state: Dict[str, Any],
+                                            previous_responses: List[Dict]) -> str:
+        """
+        GENERALIZED: Generate follow-up questions using AI based on context, not hardcoded categories
+        """
+        try:
+            # Get complaint context
+            triage_results = conversation_state.get("triage_results", {})
+            complaint_text = conversation_state.get("complaint_text", "")
+            
+            # Build previous conversation context
+            previous_context = ""
+            if previous_responses:
+                previous_context = "\n".join([
+                    f"Q{info['question_number']}: {info.get('response', '')}" 
+                    for info in previous_responses[-2:]  # Last 2 responses for context
+                ])
+            
+            # Extract key details from triage
+            if "triage_analysis" in triage_results:
+                analysis = triage_results["triage_analysis"]
+                primary_category = analysis.get("primary_category", "general")
+                urgency_level = analysis.get("urgency_level", "medium")
+                emotional_state = analysis.get("emotional_state", "neutral")
+                financial_impact = analysis.get("financial_impact", False)
+            else:
+                primary_category = "general"
+                urgency_level = "medium"
+                emotional_state = "neutral"
+                financial_impact = False
+            
+            # ✅ GENERALIZED AI PROMPT
+            prompt = f"""
+    Generate a natural follow-up question for a banking complaint investigation.
+
+    CONTEXT:
+    - Original complaint: {complaint_text[:200]}...
+    - Complaint type: {primary_category}
+    - Urgency: {urgency_level}
+    - Customer emotional state: {emotional_state}
+    - Financial impact: {financial_impact}
+    - Question number: {question_number}
+
+    PREVIOUS CUSTOMER RESPONSES:
+    {previous_context if previous_context else "None yet"}
+
+    GUIDELINES:
+    1. Ask questions that help resolve THIS SPECIFIC complaint
+    2. Be empathetic, especially if customer is {emotional_state}
+    3. Focus on gathering actionable information for investigation
+    4. Don't repeat information already gathered
+    5. Keep it conversational, not interrogative
+    6. Question should be 1-2 sentences maximum
+
+    Generate ONE specific, helpful follow-up question that would assist in resolving this customer's situation:
+    """
+            
+            # Call AI to generate question
+            response = await self._call_anthropic(prompt)
+            
+            # Clean up the response
+            question = response.strip()
+            
+            # Remove any quotes or extra formatting
+            question = question.replace('"', '').replace("'", "").strip()
+            
+            # Ensure it ends with a question mark
+            if not question.endswith('?'):
+                question += '?'
+            
+            print(f"🤖 Generated dynamic question {question_number}: {question}")
+            
+            return question
+            
+        except Exception as e:
+            print(f"❌ Error generating dynamic question: {e}")
+            # Fallback to generic question
+            return self._get_generic_fallback_question(question_number)
+
+    def _get_generic_fallback_question(self, question_number: int) -> str:
+        """
+        Fallback questions if AI generation fails - still generalized
+        """
+        fallback_questions = {
+            2: "Can you provide any additional details that might help us investigate this issue more effectively?",
+            3: "Is there anything else about this situation that you think would be important for our team to know?",
+            4: "Are there any specific outcomes or resolutions you're hoping for?"
+        }
+        
+        return fallback_questions.get(
+            question_number, 
+            "Is there any other information that would help us resolve your concern?"
+        )
+
     def _get_question_by_number(self, question_number: int, category: str, previous_responses: List[Dict]) -> str:
         """
         Get specific follow-up question by number and category
@@ -2361,7 +2817,8 @@ I want to make sure our resolution plan addresses exactly what matters most to y
     async def eva_chat_response_with_natural_flow(self, message: str, customer_context: Dict[str, Any], 
                                          conversation_id: str) -> Dict[str, Any]:
         """
-        FIXED: Enhanced Eva chat with proper triage confirmation flow - no duplicates
+        UPDATED: Enhanced Eva chat with proper triage confirmation flow - no duplicates
+        Uses hardcoded categories/constraints, database timelines
         """
         try:
             print(f"🎯 NATURAL FLOW METHOD CALLED: {message[:30]}...")
@@ -2383,14 +2840,20 @@ I want to make sure our resolution plan addresses exactly what matters most to y
                 if current_state.get("stage") == "triage_results_ready":
                     print("🎯 TRIAGE RESULTS READY - PRESENTING")
                     return await self._present_triage_for_confirmation(conversation_id)
-                else:
-                    print("🎯 TRIAGE STILL PROCESSING...")
-                    return {
-                        "response": "I'm still analyzing your situation with our specialist team. This will just take another moment...",
-                        "conversation_id": conversation_id,
-                        "stage": "analysis_in_progress",
-                        "retry_in_seconds": 3
-                    }
+                # Check if this is the special continue trigger from frontend
+                elif message.strip().lower() == "continue_triage":
+                    # Force check if results are ready now
+                    if current_state.get("background_analysis_completed"):
+                        print("🎯 FORCED TRIAGE PRESENTATION")
+                        return await self._present_triage_for_confirmation(conversation_id)
+                
+                print("🎯 TRIAGE STILL PROCESSING...")
+                return {
+                    "response": "I'm still analyzing your situation with our specialist team. This will just take another moment...",
+                    "conversation_id": conversation_id,
+                    "stage": "analysis_in_progress",
+                    "retry_in_seconds": 3
+                }
             
             # Direct check for triage_results_ready stage
             elif conversation_state["stage"] == "triage_results_ready":
@@ -2400,12 +2863,12 @@ I want to make sure our resolution plan addresses exactly what matters most to y
             # Triage confirmation stage
             elif conversation_state["stage"] == "triage_confirmation_pending":
                 return await self._handle_triage_confirmation_response(message, context, conversation_id)
-            
-            # ✅ CRITICAL FIX: Only handle follow_up_questions_active stage to prevent double handling
+           
+            # Existing follow-up questions handling
             elif conversation_state["stage"] == "follow_up_questions_active":
                 print("🎯 HANDLING FOLLOW-UP QUESTION RESPONSE")
                 return await self._handle_follow_up_questions_enhanced(message, context, conversation_id)
-            
+    
             # Check if follow-up is complete
             elif conversation_state["stage"] == "follow_up_complete":
                 print("🎯 FOLLOW-UP COMPLETE - STARTING ACTION SEQUENCE")
@@ -2427,13 +2890,41 @@ I want to make sure our resolution plan addresses exactly what matters most to y
                 "error": "Eva processing error - fallback response provided"
             }
     
+
+    async def _start_follow_up_questions(self, conversation_id: str, context: ConversationContext) -> Dict[str, Any]:
+        """
+        NEW: Start follow-up questions after status confirmation
+        """
+        conversation_state = self.conversation_states[conversation_id]
+        customer_name = context.customer_name
+        
+        # Get category and emotional state
+        primary_category = conversation_state.get("current_question_category", "general")
+        emotional_state = conversation_state.get("emotional_state", "neutral")
+        
+        # Generate first follow-up question
+        first_question = await self._get_first_question_by_category_generalized(conversation_state)
+        
+        # Update state
+        self.conversation_states[conversation_id].update({
+            "stage": "follow_up_questions_active",
+            "questions_asked": 1,  
+            "ready_for_first_question": False
+        })
+        
+        return {
+            "response": first_question,
+            "conversation_id": conversation_id,
+            "stage": "follow_up_questions_active",
+            "question_number": 1
+        }
+    
     async def _present_triage_for_confirmation(self, conversation_id: str) -> Dict[str, Any]:
         """
         FIXED: Present triage results with proper label and reasoning for customer confirmation
         """
         conversation_state = self.conversation_states[conversation_id]
         
-        # 🔥 FIX: More flexible state checking
         current_stage = conversation_state.get("stage")
         print(f"🎯 _present_triage_for_confirmation called with stage: {current_stage}")
         
@@ -2459,23 +2950,45 @@ I want to make sure our resolution plan addresses exactly what matters most to y
         
         # Extract triage details based on result format
         if "triage_analysis" in triage_results:
-            # New complaint from triage service
             analysis = triage_results["triage_analysis"]
-            primary_category = analysis["primary_category"]
-            secondary_category = analysis.get("secondary_category", "High-priority financial impact case")
-            reasoning = analysis.get("reasoning", "Based on content analysis and urgency indicators")
-            confidence = analysis.get("confidence_scores", {}).get(primary_category, 0.8)
+            
+            # ✅ FIXED: Proper primary category handling
+            if analysis.get("classification_method") == "confidence_based":
+                primary_categories = analysis.get("all_primary_categories", [analysis["primary_category"]])
+                secondary_categories = analysis.get("secondary_categories", [])
+                
+                # ✅ FIX: Use only the HIGHEST confidence primary category for customer display
+                primary_category = analysis["primary_category"]  # This is already the highest confidence
+                
+                # ✅ FIX: Translate the raw technical category, not the combined string
+                friendly_category = self._translate_category_for_customer(primary_category)
+                
+                # ✅ FIX: Build secondary category display properly
+                if secondary_categories:
+                    secondary_category = self._translate_category_for_customer(secondary_categories[0])
+                else:
+                    secondary_category = "High-priority payment shock case"
+                    
+                reasoning = analysis.get("reasoning", "Based on content analysis and urgency indicators")
+                confidence = analysis.get("confidence_scores", {}).get(primary_category, 0.8)
+            else:
+                # Fallback to original logic
+                primary_category = analysis["primary_category"]
+                secondary_category = analysis.get("secondary_category", "High-priority financial impact case")
+                reasoning = analysis.get("reasoning", "Based on content analysis and urgency indicators")
+                confidence = analysis.get("confidence_scores", {}).get(primary_category, 0.8)
+                
+                # ✅ FIX: Translate the single category properly
+                friendly_category = self._translate_category_for_customer(primary_category)
         else:
-            # Eva classification format
+            # Eva classification format - existing logic unchanged
             primary_category = triage_results.get("primary_category", "general_inquiry")
             secondary_category = triage_results.get("secondary_category", "General banking concern")
             reasoning = triage_results.get("reasoning", "Based on content analysis")
             confidence = triage_results.get("confidence_score", 0.8)
+            friendly_category = self._translate_category_for_customer(primary_category)
         
-        # Translate to customer-friendly language
-        friendly_category = self._translate_category_for_customer(primary_category)
-        
-        # Generate confirmation message with proper format
+        # ✅ FIXED: Generate confirmation message with proper friendly names
         confirmation_message = f"""{customer_name}, I've completed my analysis with our triage team. Here's what we determined:
 
     **Complaint Classification:**
@@ -2594,25 +3107,24 @@ I want to make sure our resolution plan addresses exactly what matters most to y
         return department_mapping.get(category, "general_customer_service")
 
     async def _handle_triage_confirmation_response(self, message: str, context: ConversationContext, 
-                                            conversation_id: str) -> Dict[str, Any]:
+                                        conversation_id: str) -> Dict[str, Any]:
         """
-        FIXED: Handle customer's response to triage confirmation - no duplicates
+        FIXED: Handle customer's response to triage confirmation - clean separation
         """
         confirmation_analysis = self._analyze_customer_confirmation(message)
         customer_name = context.customer_name
         
         if confirmation_analysis["confirmed"]:
-            # Customer confirms - pass to orchestrator and generate complete response
+            # Customer confirms - pass to orchestrator and generate clean status response
             await self._pass_confirmed_triage_to_orchestrator(conversation_id)
-            
-            # Get triage results for context
-            conversation_state = self.conversation_states[conversation_id]
-            triage_results = conversation_state["triage_results"]
             
             # Generate tracking ID
             tracking_id = f"TRK_{conversation_id[:8]}_{datetime.now().strftime('%Y%m%d%H%M')}"
             
-            # Extract triage details for appropriate question
+            # Get triage details for first question
+            conversation_state = self.conversation_states[conversation_id]
+            triage_results = conversation_state["triage_results"]
+
             if "triage_analysis" in triage_results:
                 analysis = triage_results["triage_analysis"]
                 primary_category = analysis["primary_category"]
@@ -2620,38 +3132,41 @@ I want to make sure our resolution plan addresses exactly what matters most to y
             else:
                 primary_category = triage_results.get("primary_category", "general")
                 emotional_state = triage_results.get("emotional_state", "neutral")
-            
-            # Generate first follow-up question based on category
+        
+            # Generate first follow-up question
             first_question = self._get_first_question_by_category(primary_category, emotional_state)
-            
-            # Create complete response with status AND first question
-            complete_response = f"""Perfect, {customer_name}! I've immediately escalated your case to our orchestrator system.
+        
+            # ✅ FIX: Combine status + first question in single response
+            combined_response = f"""Perfect, {customer_name}! I've immediately escalated your case to our orchestrator system.
 
     **Current Status:** Your complaint has been routed and is now in the investigation queue with a tracking ID: {tracking_id}.
 
-    Now, let me gather some additional details to help our investigation team resolve this more effectively.
+    Our mortgage specialist team now has all your details and will begin investigating this payment increase immediately. You'll receive updates as we make progress on your case.
+
+    Now, let me gather some additional details to help our investigation team resolve this more effectively:
 
     {first_question}"""
-
-            # 🔥 CRITICAL FIX: Set questions_asked to 0, not 1, because the first question is included in this response
+            
+            
+            # ✅ FIX: Set questions_asked to 0, no question in this response
             self.conversation_states[conversation_id].update({
-                "stage": "follow_up_questions_active",  # Different stage name to prevent re-triggering
-                "questions_asked": 0,  # ✅ FIXED: Changed from 1 to 0 since first question is in the response above
+                "stage": "follow_up_questions_active",
+                "questions_asked": 0,  # ✅ No question asked yet
                 "max_questions": 3,
                 "gathered_additional_info": [],
                 "orchestrator_notified": True,
                 "current_question_category": primary_category,
-                "first_question_included_in_response": True  # Flag to track this
+                "emotional_state": emotional_state,
+                
             })
             
             return {
-                "response": complete_response,
+                "response": combined_response,
                 "conversation_id": conversation_id,
-                "stage": "follow_up_questions_active",
-                "question_number": 1,  # This is the question number being asked
-                "first_question_included": True
+                "stage": "follow_up_questions_ready",  # Different stage to trigger question next
+                "question_number": 1  
             }
-            
+                
         elif confirmation_analysis["needs_correction"]:
             # Customer wants correction
             correction_message = f"""Thank you for that clarification, {customer_name}. Let me understand your situation better.
@@ -2876,56 +3391,6 @@ I want to make sure our resolution plan addresses exactly what matters most to y
             
         except Exception as e:
             print(f"⚠️ Eva cleanup error: {e}")
-    
-    # =================  BULLET POINT RESPONSES ====================
-    
-    def _analyze_customer_feedback(self, customer_response: str) -> Dict[str, Any]:
-        """Analyze customer feedback to determine learning signals"""
-        
-        response_lower = customer_response.lower()
-        
-        if any(phrase in response_lower for phrase in ["exactly right", "perfect", "correct", "yes that's it"]):
-            return {
-                "feedback_type": "confirmed",
-                "learning_weight": 1.0,
-                "reward_signal": 1.0,
-                "confidence_adjustment": 0.05
-            }
-        elif any(phrase in response_lower for phrase in ["completely wrong", "not right", "disagree"]):
-            return {
-                "feedback_type": "major_correction", 
-                "learning_weight": 1.0,
-                "reward_signal": -0.5,
-                "confidence_adjustment": -0.1
-            }
-        elif any(phrase in response_lower for phrase in ["partially", "sort of", "close but"]):
-            return {
-                "feedback_type": "partial_correction",
-                "learning_weight": 0.7,
-                "reward_signal": 0.5,
-                "confidence_adjustment": 0.02
-            }
-        else:
-            return {
-                "feedback_type": "unclear",
-                "learning_weight": 0.3,
-                "reward_signal": 0.0,
-                "confidence_adjustment": 0.0
-            }
-    
 
     
     
-    
-    
-
-    
-        
-    
-    
-    
-    
-    
-
-
-

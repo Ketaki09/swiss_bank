@@ -10,7 +10,7 @@ import { VoiceService } from "../services/VoiceService";
 import { config } from "../lib/config";
 import type { AuthResponse } from "../services/authService";
 import { useOTPStatus } from '../hooks/useOTPStatus';
-import { CheckCircle2, ArrowRight, User, Shield, AlertTriangle, CreditCard, Eye, TrendingUp, Users2, MessageSquare, Target, Zap} from "lucide-react";
+import { CheckCircle2, ArrowRight, Shield, AlertTriangle, CreditCard, Eye, TrendingUp, Users2, MessageSquare, Target, Zap} from "lucide-react";
 
 interface ClassificationData {
   complaint_id?: string;
@@ -83,23 +83,6 @@ interface EvaResponse {
   retry_in_seconds?: number;  
 }
 
-// Triage Analysis Animation Component
-const TriageAnalysisAnimation = () => (
-  <div className="flex justify-start">
-    <div className="bg-blue-500 text-white border-2 border-blue-400 p-3 rounded-lg animate-pulse-border">
-      <div className="flex items-center space-x-2">
-        <Brain className="w-4 h-4 animate-pulse" />
-        <div className="flex space-x-1">
-          <div className="w-2 h-2 bg-white rounded-full animate-bounce"></div>
-          <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-          <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-        </div>
-        <span className="text-xs">Triage analysis in progress...</span>
-      </div>
-    </div>
-  </div>
-);
-
 interface ParsedMessage {
   intro?: string;
   sections: {
@@ -118,6 +101,91 @@ interface ClassificationConfirmationData {
   followup_response: string;
   next_steps: string[];
 }
+
+// Triage Analysis Animation Component
+const TriageAnalysisAnimation = () => (
+  <div className="flex justify-start">
+    <div className="bg-yellow-500 text-black border-2 border-yellow-400 p-3 rounded-lg animate-pulse-border">
+      <div className="flex items-center space-x-2">
+        <Brain className="w-4 h-4 animate-pulse" />
+        <div className="flex space-x-1">
+          <div className="w-2 h-2 bg-black rounded-full animate-bounce"></div>
+          <div className="w-2 h-2 bg-black rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+          <div className="w-2 h-2 bg-black rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+        </div>
+        <span className="text-xs">Triage analysis in progress...</span>
+      </div>
+    </div>
+  </div>
+);
+
+const VoiceToggleButton = ({ 
+  message, 
+  currentlyPlayingMessageId, 
+  onToggleVoice,
+  onCopyMessage 
+}: {
+  message: Message;
+  currentlyPlayingMessageId: string | null;
+  onToggleVoice: (content: string, messageId: string) => void;
+  onCopyMessage: (content: string) => void;
+}) => {
+  const isPlaying = currentlyPlayingMessageId === message.id;
+  
+  return (
+    <div className="flex items-center space-x-2 mt-2 justify-end animate-fade-in">
+      {/* Enhanced Voice Toggle Button */}
+      <button
+        onClick={() => onToggleVoice(message.content, message.id)}
+        className={`group relative flex items-center justify-center w-8 h-8 rounded-full transition-all duration-300 border-2 hover:scale-110 transform ${
+          isPlaying
+            ? 'bg-yellow-400/20 text-yellow-400 border-yellow-400 animate-pulse shadow-lg shadow-yellow-400/30'
+            : 'bg-gray-800/50 hover:bg-yellow-400/20 text-gray-400 hover:text-yellow-400 border-gray-600 hover:border-yellow-400/70 hover:shadow-lg hover:shadow-yellow-400/20'
+        }`}
+        title={isPlaying ? "Stop playing message" : "Play message aloud"}
+      >
+        {/* Icon with smooth transition */}
+        <div className="relative">
+          {isPlaying ? (
+            <VolumeX className="w-3 h-3 transition-all duration-200" />
+          ) : (
+            <Volume2 className="w-3 h-3 transition-all duration-200" />
+          )}
+        </div>
+        
+        {/* Ripple effect when playing */}
+        {isPlaying && (
+          <div className="absolute inset-0 rounded-full border-2 border-yellow-400/30 animate-ping" />
+        )}
+        
+        {/* Tooltip */}
+        <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+          <div className="bg-black/90 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+            {isPlaying ? "Stop" : "Play"}
+          </div>
+          <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-black/90"></div>
+        </div>
+      </button>
+      
+      {/* Copy Button */}
+      <button
+        onClick={() => onCopyMessage(message.content)}
+        className="group relative flex items-center justify-center w-8 h-8 bg-gray-800/50 hover:bg-yellow-400/20 text-gray-400 hover:text-yellow-400 rounded-full transition-all duration-300 border-2 border-gray-600 hover:border-yellow-400/70 hover:shadow-lg hover:shadow-yellow-400/20 hover:scale-110 transform"
+        title="Copy message to clipboard"
+      >
+        <Copy className="w-3 h-3 transition-all duration-200" />
+        
+        {/* Tooltip */}
+        <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+          <div className="bg-black/90 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+            Copy
+          </div>
+          <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-black/90"></div>
+        </div>
+      </button>
+    </div>
+  );
+};
 
 const AuthenticatedEvaChat = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -168,8 +236,15 @@ const AuthenticatedEvaChat = () => {
 
   // Voice-related state
   const [isListening, setIsListening] = useState(false);
-  const [isVoiceGloballyMuted, setIsVoiceGloballyMuted] = useState(false);
   const [showRepeatInfo, setShowRepeatInfo] = useState(false);
+  
+  // Enhanced voice state management
+  const [currentlyPlayingMessageId, setCurrentlyPlayingMessageId] = useState<string | null>(null);
+  const [voiceQueue, setVoiceQueue] = useState<string[]>([]);
+  
+  // NEW: Global voice control states - DEFAULT MUTED
+  const [isVoiceMuted, setIsVoiceMuted] = useState(true);
+  const [autoPlayEnabled, setAutoPlayEnabled] = useState(false);
   
   // Voice service
   const [voiceService] = useState(() => new VoiceService());
@@ -185,46 +260,175 @@ const AuthenticatedEvaChat = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  // Function to automatically play voice for bot messages
-  const playVoiceForBotMessage = useCallback(async (content: string, messageId: string) => {
-    if (!isVoiceGloballyMuted) {
-      try {
-        await voiceService.textToSpeech(content);
-      } catch (error) {
-        console.error('Error playing voice message:', error);
-      }
-    }
-  }, [isVoiceGloballyMuted, voiceService]);
-
-  // Function to repeat voice message
-  const repeatVoiceMessage = useCallback(async (content: string) => {
-    if (!isVoiceGloballyMuted) {
+  useEffect(() => {
+    return () => {
       try {
         speechSynthesis.cancel();
-        await voiceService.textToSpeech(content);
+        console.log('🧹 Voice cleanup on component unmount');
       } catch (error) {
-        console.error('Error repeating voice message:', error);
+        console.error('Error during voice cleanup:', error);
       }
-    } else {
-      toast.info('Voice is currently muted. Enable voice to hear messages.');
+    };
+  }, []);
+
+  // Stop voice when chat is closed
+  useEffect(() => {
+    if (!isOpen && currentlyPlayingMessageId) {
+      try {
+        speechSynthesis.cancel();
+        setCurrentlyPlayingMessageId(null);
+        console.log('🔇 Voice stopped - chat closed');
+      } catch (error) {
+        console.error('Error stopping voice on chat close:', error);
+      }
     }
-  }, [isVoiceGloballyMuted, voiceService]);
+  }, [isOpen, currentlyPlayingMessageId]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  // Function to play voice for bot messages with queue management
+  const playVoiceForBotMessage = useCallback(async (content: string, messageId: string) => {
+    // NEVER auto-play - only play when explicitly requested
+    console.log('🔇 Auto-play disabled by default');
+    return;
+  }, []); // Removed unnecessary voiceService dependency
+
+  // Function to play specific message (for individual play buttons)
+  const playSpecificMessage = useCallback(async (content: string, messageId: string) => {
+    try {
+      // Stop any currently playing voice first
+      speechSynthesis.cancel();
+      
+      console.log('🔊 Playing specific message:', messageId);
+      
+      // Set as currently playing
+      setCurrentlyPlayingMessageId(messageId);
+      
+      // Play the message
+      await voiceService.textToSpeech(content);
+      
+      // Clear currently playing when done (only if this message is still playing)
+      setCurrentlyPlayingMessageId(prev => prev === messageId ? null : prev);
+      
+      toast.success('🔊 Message played');
+    } catch (error) {
+      console.error('Error playing specific message:', error);
+      setCurrentlyPlayingMessageId(null);
+      toast.error('Failed to play message');
+    }
+  }, [voiceService]);
+
+  // Function to stop current voice playback
+  const stopCurrentVoice = useCallback(() => {
+  try {
+    speechSynthesis.cancel(); // Stop browser speech synthesis
+    setCurrentlyPlayingMessageId(null);
+    toast.info('🔇 Voice playback stopped');
+    console.log('🛑 All voice playback stopped');
+  } catch (error) {
+    console.error('Error stopping voice playback:', error);
+    setCurrentlyPlayingMessageId(null);
+  }
+}, []);
+
+
+  // NEW: Simplified and robust toggle voice for specific message
+  const toggleMessageVoice = useCallback(async (content: string, messageId: string) => {
+  console.log('🎯 Toggle voice called for message:', messageId, 'Currently playing:', currentlyPlayingMessageId);
+  
+  try {
+    if (currentlyPlayingMessageId === messageId) {
+      // STOP: This message is currently playing
+      console.log('🛑 Stopping voice for message:', messageId);
+      
+      // Force stop all speech synthesis
+      if (speechSynthesis.speaking) {
+        speechSynthesis.cancel();
+      }
+      
+      // Clear the playing state immediately
+      setCurrentlyPlayingMessageId(null);
+      
+      toast.info('🔇 Voice stopped');
+      console.log('✅ Voice successfully stopped for message:', messageId);
+      
+    } else {
+      // PLAY: Start playing this message
+      console.log('🔊 Starting voice for message:', messageId);
+      
+      // Stop any other currently playing voice first
+      if (currentlyPlayingMessageId || speechSynthesis.speaking) {
+        console.log('🛑 Stopping previous voice before starting new one');
+        speechSynthesis.cancel();
+      }
+      
+      // Set this message as currently playing BEFORE starting
+      setCurrentlyPlayingMessageId(messageId);
+      console.log('🎯 Set message as currently playing:', messageId);
+      
+      // Start playing the message with error handling
+      try {
+        await voiceService.textToSpeech(content);
+        
+        // Only clear if this message is still the current one
+        setCurrentlyPlayingMessageId(prev => {
+          if (prev === messageId) {
+            console.log('✅ Voice completed for message:', messageId);
+            return null;
+          }
+          console.log('🔄 Another message started playing, keeping state');
+          return prev;
+        });
+        
+        toast.success('🔊 Message played');
+        
+      } catch (speechError) {
+        console.error('❌ Speech synthesis error:', speechError);
+        setCurrentlyPlayingMessageId(null);
+        toast.error('Failed to play message - speech synthesis error');
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error in toggleMessageVoice:', error);
+    setCurrentlyPlayingMessageId(null);
+    toast.error('Voice operation failed');
+  }
+}, [currentlyPlayingMessageId, voiceService]);
+
+
 
   // Copy message function
   const copyMessage = (content: string) => {
-    navigator.clipboard.writeText(content).then(() => {
-      toast.success('Message copied to clipboard');
+    // Clean the content from any markdown or special characters for copying
+    const cleanContent = content
+      .replace(/\*\*/g, '') // Remove bold markdown
+      .replace(/\*/g, '')   // Remove italic markdown
+      .replace(/\n\s*\n/g, '\n') // Remove extra line breaks
+      .trim();
+      
+    navigator.clipboard.writeText(cleanContent).then(() => {
+      toast.success('📋 Message copied to clipboard');
     }).catch(err => {
       console.error('Failed to copy message:', err);
-      toast.error('Failed to copy message');
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = cleanContent;
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        toast.success('📋 Message copied to clipboard');
+      } catch (fallbackErr) {
+        toast.error('Failed to copy message');
+      }
+      document.body.removeChild(textArea);
     });
   };
 
@@ -560,7 +764,6 @@ const AuthenticatedEvaChat = () => {
   **Does this assessment accurately capture your situation?** Please let me know if this sounds right or if I need to adjust my understanding before we proceed with the resolution steps.`;
   };
 
-
   // Add follow-up questions as separate messages
   const addFollowUpQuestions = useCallback((questions: string[]) => {
     questions.forEach((question, index) => {
@@ -574,14 +777,11 @@ const AuthenticatedEvaChat = () => {
       
       setTimeout(() => {
         setMessages(prev => [...prev, questionMessage]);
-        if (!isVoiceGloballyMuted) {
-          setTimeout(() => {
-            voiceService.textToSpeech(question);
-          }, index * 500); // Stagger multiple questions
-        }
+        // Play voice for follow-up questions ONLY if user explicitly requests
+        // No auto-play by default
       }, 1000 + (index * 1500)); // Delay for natural conversation flow
     });
-  }, [isVoiceGloballyMuted, voiceService]);
+  }, []);
 
   const startAuthentication = useCallback(async () => {
     setAuthLoading(true);
@@ -665,12 +865,8 @@ const AuthenticatedEvaChat = () => {
             };
             setMessages([greetingMessage]);
             
-            // Play greeting voice message if not globally muted
-            if (!isVoiceGloballyMuted) {
-              setTimeout(() => {
-                voiceService.textToSpeech(data.greeting);
-              }, 1500);
-            }
+            // Play greeting voice message ONLY if user explicitly enables it
+            // No auto-play by default
           } else {
             // Fallback greeting
             const fallbackGreeting: Message = {
@@ -704,12 +900,12 @@ const AuthenticatedEvaChat = () => {
         setTimeout(() => setShowRepeatInfo(false), 5000);
       }, 2000);
     }
-  }, [isAuthenticated, customerData, messages.length, isVoiceGloballyMuted, voiceService, sessionId, evaStatus, addSystemMessage]);
+  }, [isAuthenticated, customerData, messages.length, sessionId, evaStatus, addSystemMessage]);
 
   // Sequential message handling with voice-aware timing
   useEffect(() => {
     if (pendingSequentialMessage) {
-      const delay = isVoiceDisabled ? 10000 : 5000; // 10s if voice disabled, 5s if enabled
+      const delay = isVoiceMuted ? 10000 : 5000; // 10s if voice disabled, 5s if enabled
       
       const timer = setTimeout(async () => {
         try {
@@ -747,12 +943,8 @@ const AuthenticatedEvaChat = () => {
               setPendingSequentialMessage(null);
             }
             
-            // Play voice if enabled
-            if (!isVoiceGloballyMuted) {
-              setTimeout(() => {
-                playVoiceForBotMessage(data.response, botMessage.id);
-              }, 500);
-            }
+            // Play voice only if user explicitly requests it
+            // No auto-play by default
           }
         } catch (error) {
           console.error('Error getting sequential message:', error);
@@ -762,7 +954,7 @@ const AuthenticatedEvaChat = () => {
       
       return () => clearTimeout(timer);
     }
-  }, [pendingSequentialMessage, isVoiceDisabled, isVoiceGloballyMuted, sessionId, playVoiceForBotMessage]);
+  }, [pendingSequentialMessage, isVoiceMuted, currentlyPlayingMessageId, sessionId]);
 
   // Enhanced event listeners
   useEffect(() => {
@@ -966,12 +1158,7 @@ const AuthenticatedEvaChat = () => {
         
         setMessages(prev => [...prev, followupMessage]);
         
-        // Play voice if enabled
-        if (!isVoiceGloballyMuted) {
-          setTimeout(() => {
-            playVoiceForBotMessage(data.followup_response, followupMessage.id);
-          }, 500);
-        }
+ 
         
         // Show learning confirmation
         if (data.learning_applied) {
@@ -993,197 +1180,237 @@ const AuthenticatedEvaChat = () => {
     } finally {
       setIsProcessing(false);
     }
-  }, [pendingClassification, awaitingFeedback, sessionId, playVoiceForBotMessage, addSystemMessage, isVoiceGloballyMuted]);
+  }, [pendingClassification, awaitingFeedback, sessionId, addSystemMessage]);
 
-  // Also need to add the ClassificationConfirmationData interface at the top with other interfaces
-  interface ClassificationConfirmationData {
-    feedback_processed: boolean;
-    feedback_type: string;
-    learning_applied: boolean;
-    followup_response: string;
-    next_steps: string[];
-  }
-
-  // Handle classification confirmation
+  // Handle sending messages
   const handleSendMessage = async (content: string, type: 'text' | 'voice' | 'image' | 'document' = 'text') => {
-  if (!content.trim() && type === 'text') return;
-  if (!isAuthenticated) {
-    toast.error('Please authenticate first');
-    return;
-  }
+    if (!content.trim() && type === 'text') return;
+    if (!isAuthenticated) {
+      toast.error('Please authenticate first');
+      return;
+    }
 
-  const userMessage: Message = {
-    id: Date.now().toString(),
-    type: 'user',
-    content,
-    timestamp: new Date(),
-    messageType: type
-  };
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      type: 'user',
+      content,
+      timestamp: new Date(),
+      messageType: type
+    };
 
-  setMessages(prev => [...prev, userMessage]);
-  setInputText('');
-  resetInputHeight();
-  setIsProcessing(true);
+    setMessages(prev => [...prev, userMessage]);
+    setInputText('');
+    resetInputHeight();
+    setIsProcessing(true);
 
-  try {
-    const formData = new FormData();
-    formData.append('message', content);
-    formData.append('session_id', sessionId!);
+    try {
+      const formData = new FormData();
+      formData.append('message', content);
+      formData.append('session_id', sessionId!);
 
-    console.log('🤖 Sending message to Eva Agent:', content);
+      console.log('🤖 Sending message to Eva Agent:', content);
 
-    const response = await fetch(`${config.backendUrl}/api/eva/chat-natural`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${sessionId}`
-      },
-      body: formData
-    });
+      const response = await fetch(`${config.backendUrl}/api/eva/chat-natural`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${sessionId}`
+        },
+        body: formData
+      });
 
-    console.log('📡 Response status:', response.status);
+      console.log('📡 Response status:', response.status);
 
-    if (response.ok) {
-      const data: EvaResponse = await response.json();
-      console.log('🤖 Eva Response received:', data);
-      console.log('🎯 Eva Stage:', data.stage);
+      if (response.ok) {
+        const data: EvaResponse = await response.json();
+        console.log('🤖 Eva Response received:', data);
+        console.log('🎯 Eva Stage:', data.stage);
+        
+        // Clean response
+        const cleanedResponse = data.response
+          .replace(/\*\[Analysis in progress[^\]]*\]\*/g, '')
+          .replace(/\.\.\.\s*$/g, '')
+          .trim();
+        
+        const { parsedMessage, followUpQuestions } = parseEvaMessage(cleanedResponse);
+        
+        const botMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: 'bot',
+          content: cleanedResponse,
+          timestamp: new Date(),
+          messageType: 'text',
+          emotional_state: data.emotional_state,
+          classification_pending: data.classification_pending,
+          requires_confirmation: data.requires_confirmation
+        };
+        
+        setMessages(prev => [...prev, botMessage]);
+        
+        // Check if needs background processing
+        const needsBackgroundProcessing = (
+          data.stage === 'triage_analysis_initiated' || 
+          data.background_processing === true ||
+          data.response.includes('analyzing') ||
+          data.response.includes('analysis in progress') ||
+          data.stage === 'awaiting_triage_results'
+        );
+        
+        console.log('🎯 Needs background processing:', needsBackgroundProcessing, 'Stage:', data.stage);
+        
+        if (needsBackgroundProcessing) {
+          console.log('🎯 Starting analysis animation WITH AUTO-POLLING');
+          setShowAnalysisAnimation(true);
+          
+          // Start polling for triage results after 3 seconds
+          setTimeout(async () => {
+            try {
+              // First check if results are ready without sending new message
+              const statusResponse = await fetch(`${config.backendUrl}/api/eva/triage-status/${sessionId}`, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${sessionId}` }
+              });
+              
+              if (statusResponse.ok) {
+                const statusData = await statusResponse.json();
+                
+                if (statusData.triage_results_ready) {
+                  // Results are ready, get them by sending a continue message
+                  const formData = new FormData();
+                  formData.append('message', 'continue_triage'); // Special trigger
+                  formData.append('session_id', sessionId!);
+                  
+                  const response = await fetch(`${config.backendUrl}/api/eva/chat-natural`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${sessionId}` },
+                    body: formData
+                  });
+                  
+                  if (response.ok) {
+                    const resultData = await response.json();
+                    
+                    setShowAnalysisAnimation(false);
+                    
+                    const triageMessage: Message = {
+                      id: (Date.now() + 2).toString(),
+                      type: 'bot',
+                      content: resultData.response,
+                      timestamp: new Date(),
+                      messageType: 'text'
+                    };
+                    
+                    setMessages(prev => [...prev, triageMessage]);
+                    
+                    // Play voice only if user explicitly requests it
+                    // No auto-play by default
+                  }
+                } else {
+                  // Results not ready yet, continue showing animation
+                  setShowAnalysisAnimation(false);
+                  console.log('🎯 Triage results not ready yet');
+                }
+              }
+            } catch (error) {
+              console.error('Auto-polling error:', error);
+              setShowAnalysisAnimation(false);
+            }
+          }, 3000); // 3 seconds like in test case
+        }
+
+        // Handle confirmation requirements
+        if (data.requires_confirmation && data.classification_pending) {
+          setPendingClassification(data.classification_pending);
+          setAwaitingFeedback(true);
+          
+          setTimeout(() => {
+            addSystemMessage(
+              `🔍 I've analyzed your message and classified it as: "${data.classification_pending!.theme}". ` +
+              `Is this correct? Please respond with "Yes, exactly right!" or "No, that's not quite right" to help me learn.`
+            );
+          }, 1000);
+        }
+
+        // NO auto-play - only manual play when user clicks speaker button
+
+        // Handle sequential messages
+        if (data.sequential_messages_active && data.next_message_in_seconds) {
+          setPendingSequentialMessage({
+            conversationId: sessionId!,
+            nextMessageTime: Date.now() + (data.next_message_in_seconds * 1000)
+          });
+        }
+
+        // Handle follow-up questions
+        if (followUpQuestions.length > 0) {
+          addFollowUpQuestions(followUpQuestions);
+        }
+
+      } else {
+        const errorText = await response.text();
+        console.error('❌ Eva API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
+        throw new Error(`Eva API failed: ${response.status} - ${errorText}`);
+      }
+    } catch (error) {
+      console.error('❌ Eva chat error:', error);
       
-      // Clean response
-      const cleanedResponse = data.response
-        .replace(/\*\[Analysis in progress[^\]]*\]\*/g, '')
-        .replace(/\.\.\.\s*$/g, '')
-        .trim();
+      const errorMessage = (error as Error).message.toLowerCase();
+      let fallbackMessage = `I apologize, ${customerData?.name || 'valued customer'}. `;
       
-      const { parsedMessage, followUpQuestions } = parseEvaMessage(cleanedResponse);
+      if (errorMessage.includes('triage')) {
+        fallbackMessage += `I'm having trouble analyzing your request right now. Our team has been notified and will review your message manually.`;
+      } else {
+        fallbackMessage += `I'm experiencing a technical issue with my AI systems. Let me try to help you in a different way. What specific banking service do you need assistance with today?`;
+      }
       
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'bot',
-        content: cleanedResponse,
+        content: fallbackMessage,
         timestamp: new Date(),
-        messageType: 'text',
-        emotional_state: data.emotional_state,
-        classification_pending: data.classification_pending,
-        requires_confirmation: data.requires_confirmation
+        messageType: 'text'
       };
       
       setMessages(prev => [...prev, botMessage]);
-      
-      // 🔥 FIXED: Only show analysis animation for specific background processing cases
-      const needsBackgroundProcessing = (
-        data.stage === 'triage_analysis_initiated' && 
-        data.background_processing === true &&
-        data.response.includes('analyzing')
-      );
-      
-      console.log('🎯 Needs background processing:', needsBackgroundProcessing, 'Stage:', data.stage);
-      
-      if (needsBackgroundProcessing) {
-        console.log('🎯 Starting analysis animation - NO POLLING');
-        setShowAnalysisAnimation(true);
-        
-        // 🔥 CRITICAL FIX: Just show animation, NO POLLING
-        // The backend will handle the flow naturally in subsequent messages
-        setTimeout(() => {
-          setShowAnalysisAnimation(false);
-          console.log('🎯 Analysis animation ended - waiting for next user message');
-        }, 5000); // Show animation for 5 seconds, then stop
-      }
-      
-      // Handle confirmation requirements
-      if (data.requires_confirmation && data.classification_pending) {
-        setPendingClassification(data.classification_pending);
-        setAwaitingFeedback(true);
-        
-        setTimeout(() => {
-          addSystemMessage(
-            `🔍 I've analyzed your message and classified it as: "${data.classification_pending!.theme}". ` +
-            `Is this correct? Please respond with "Yes, exactly right!" or "No, that's not quite right" to help me learn.`
-          );
-        }, 1000);
-      }
-
-      playVoiceForBotMessage(cleanedResponse, botMessage.id);
-
-      // Handle sequential messages (keep this part)
-      if (data.sequential_messages_active && data.next_message_in_seconds) {
-        setPendingSequentialMessage({
-          conversationId: sessionId!,
-          nextMessageTime: Date.now() + (data.next_message_in_seconds * 1000)
-        });
-      }
-
-      // Handle follow-up questions (keep this part)
-      if (followUpQuestions.length > 0) {
-        addFollowUpQuestions(followUpQuestions);
-      }
-
-    } else {
-      const errorText = await response.text();
-      console.error('❌ Eva API Error:', {
-        status: response.status,
-        statusText: response.statusText,
-        error: errorText
-      });
-      throw new Error(`Eva API failed: ${response.status} - ${errorText}`);
+      addSystemMessage(`⚠️ ${errorMessage.includes('triage') ? 'Triage system' : 'Eva AI'} temporarily offline. Error: ${(error as Error).message}`);
+    } finally {
+      setIsProcessing(false);
     }
-  } catch (error) {
-    console.error('❌ Eva chat error:', error);
-    
-    const errorMessage = (error as Error).message.toLowerCase();
-    let fallbackMessage = `I apologize, ${customerData?.name || 'valued customer'}. `;
-    
-    if (errorMessage.includes('triage')) {
-      fallbackMessage += `I'm having trouble analyzing your request right now. Our team has been notified and will review your message manually.`;
-    } else {
-      fallbackMessage += `I'm experiencing a technical issue with my AI systems. Let me try to help you in a different way. What specific banking service do you need assistance with today?`;
-    }
-    
-    const botMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      type: 'bot',
-      content: fallbackMessage,
-      timestamp: new Date(),
-      messageType: 'text'
-    };
-    
-    setMessages(prev => [...prev, botMessage]);
-    addSystemMessage(`⚠️ ${errorMessage.includes('triage') ? 'Triage system' : 'Eva AI'} temporarily offline. Error: ${(error as Error).message}`);
-  } finally {
-    setIsProcessing(false);
-  }
-};
+  };
 
   // Detect confirmation responses
   useEffect(() => {
-  if (!awaitingFeedback || messages.length === 0) return;
-  
-  const lastMessage = messages[messages.length - 1];
-  
-  // 🔥 CRITICAL FIX: Only process USER messages, and only process each message once
-  if (lastMessage.type === 'user' && !lastMessage.processed) {
-    const content = lastMessage.content.toLowerCase();
+    if (!awaitingFeedback || messages.length === 0) return;
     
-    console.log('🎯 Checking for confirmation in user message:', content);
+    const lastMessage = messages[messages.length - 1];
     
-    // Mark message as processed to prevent duplicate processing
-    setMessages(prev => prev.map(msg => 
-      msg.id === lastMessage.id ? { ...msg, processed: true } : msg
-    ));
-    
-    if (content.includes('yes') || content.includes('correct') || content.includes('exactly') || content.includes('right')) {
-      console.log('✅ Positive confirmation detected');
-      handleClassificationConfirmation('Yes, exactly right!');
-    } else if (content.includes('no') || content.includes('wrong') || content.includes('not right') || content.includes('incorrect')) {
-      console.log('❌ Negative confirmation detected');
-      handleClassificationConfirmation('No, that\'s not quite right');
-    } else if (content.includes('partially') || content.includes('sort of') || content.includes('close but')) {
-      console.log('🔄 Partial confirmation detected');
-      handleClassificationConfirmation('Partially correct, but not exactly');
-    } else {
-      console.log('🤷 No clear confirmation pattern detected');
+    // Only process USER messages, and only process each message once
+    if (lastMessage.type === 'user' && !lastMessage.processed) {
+      const content = lastMessage.content.toLowerCase();
+      
+      console.log('🎯 Checking for confirmation in user message:', content);
+      
+      // Mark message as processed to prevent duplicate processing
+      setMessages(prev => prev.map(msg => 
+        msg.id === lastMessage.id ? { ...msg, processed: true } : msg
+      ));
+      
+      if (content.includes('yes') || content.includes('correct') || content.includes('exactly') || content.includes('right')) {
+        console.log('✅ Positive confirmation detected');
+        handleClassificationConfirmation('Yes, exactly right!');
+      } else if (content.includes('no') || content.includes('wrong') || content.includes('not right') || content.includes('incorrect')) {
+        console.log('❌ Negative confirmation detected');
+        handleClassificationConfirmation('No, that\'s not quite right');
+      } else if (content.includes('partially') || content.includes('sort of') || content.includes('close but')) {
+        console.log('🔄 Partial confirmation detected');
+        handleClassificationConfirmation('Partially correct, but not exactly');
+      } else {
+        console.log('🤷 No clear confirmation pattern detected');
+      }
     }
-  }
-}, [messages, awaitingFeedback, handleClassificationConfirmation]);
+  }, [messages, awaitingFeedback, handleClassificationConfirmation]);
 
   // Voice input with timeout and animations
   const handleVoiceInput = async () => {
@@ -1218,20 +1445,6 @@ const AuthenticatedEvaChat = () => {
       }
     } finally {
       setIsListening(false);
-    }
-  };
-
-  // Handle muting/unmuting and global voice control
-  const toggleGlobalVoiceMute = () => {
-    const newMuteState = !isVoiceGloballyMuted;
-    setIsVoiceGloballyMuted(newMuteState);
-    setIsVoiceDisabled(newMuteState);
-    
-    if (newMuteState) {
-      speechSynthesis.cancel();
-      toast.info('Voice messages muted - using 10-second delays');
-    } else {
-      toast.info('Voice messages enabled');
     }
   };
 
@@ -1312,21 +1525,6 @@ const AuthenticatedEvaChat = () => {
             </div>
           </div>
           <div className="flex items-center space-x-1">
-            {/* Global Voice Mute Toggle */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleGlobalVoiceMute}
-              className="!h-6 !w-6 !p-0 hover:bg-gray-800 text-yellow-400 hover:text-yellow-300"
-              title={isVoiceGloballyMuted ? 'Enable voice messages' : 'Mute voice messages'}
-            >
-              {isVoiceGloballyMuted ? (
-                <VolumeX className="h-3 w-3" />
-              ) : (
-                <Volume2 className="h-3 w-3" />
-              )}
-            </Button>
-            
             <Button
               variant="ghost"
               size="sm"
@@ -1339,6 +1537,7 @@ const AuthenticatedEvaChat = () => {
         </CardHeader>
 
         <CardContent className="!p-0 flex flex-col h-[calc(100%-50px)]">
+
           {/* Authentication Flow or Messages */}
           <div 
             className="flex-1 overflow-y-auto p-4 space-y-4 bg-black"
@@ -1641,25 +1840,14 @@ const AuthenticatedEvaChat = () => {
                         </div>
                       </div>
                       
-                      {/* External action buttons positioned outside and to the right */}
+                      {/* Enhanced voice and action controls - SINGLE TOGGLE BUTTON */}
                       {message.type === 'bot' && (
-                        <div className="flex items-center space-x-2 mt-2 justify-end">
-                          <button
-                            onClick={() => repeatVoiceMessage(message.content)}
-                            className="flex items-center justify-center w-5 h-5 bg-transparent hover:bg-yellow-400/20 text-gray-400 hover:text-yellow-400 rounded-md transition-all duration-300 border border-transparent hover:border-yellow-400/50 hover:shadow-lg hover:shadow-yellow-400/25 hover:scale-110"
-                            title="Repeat message"
-                          >
-                            <RefreshCw className="w-2 h-2" />
-                          </button>
-                          
-                          <button
-                            onClick={() => copyMessage(message.content)}
-                            className="flex items-center justify-center w-5 h-5 bg-transparent hover:bg-yellow-400/20 text-gray-400 hover:text-yellow-400 rounded-md transition-all duration-300 border border-transparent hover:border-yellow-400/50 hover:shadow-lg hover:shadow-yellow-400/25 hover:scale-110"
-                            title="Copy message"
-                          >
-                            <Copy className="w-2 h-2" />
-                          </button>
-                        </div>
+                        <VoiceToggleButton
+                          message={message}
+                          currentlyPlayingMessageId={currentlyPlayingMessageId}
+                          onToggleVoice={toggleMessageVoice}
+                          onCopyMessage={copyMessage}
+                        />
                       )}
                     </div>
                   </div>
@@ -1696,7 +1884,7 @@ const AuthenticatedEvaChat = () => {
                       <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                     </div>
                     <span className="text-xs">
-                      Next message in {isVoiceDisabled ? '10' : '5'} seconds...
+                      Next message in {isVoiceMuted ? '10' : '5'} seconds...
                     </span>
                   </div>
                 </div>

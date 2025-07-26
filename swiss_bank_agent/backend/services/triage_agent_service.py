@@ -97,16 +97,14 @@ class NewThemeDetector:
         return any(term in complaint_lower for term in novel_indicators)
     
     def _cross_category_confusion(self, classification_results: Dict[str, Any]) -> bool:
-        """Detect if AI is confused between multiple categories"""
+        """Detect if AI is genuinely confused (no category >70%)"""
         confidence_scores = classification_results.get('confidence_scores', {})
         
-        # Count categories with high confidence (>0.5)
-        high_confidence_categories = [
-            category for category, score in confidence_scores.items() 
-            if score > 0.5
-        ]
+        # Only flag as confusion if NO category has >70% confidence
+        max_confidence = max(confidence_scores.values()) if confidence_scores else 0
+    
         
-        return len(high_confidence_categories) >= 3
+        return max_confidence < 0.7
     
     def _get_escalation_actions(self, reason: str) -> List[str]:
         """Generate specific actions for orchestrator"""
@@ -161,6 +159,7 @@ class TriageAgentService:
             "loan_issues_auto_personal_student",
             "insurance_claim_denials_delays"
         ]
+        
         
         # Orchestrator alert queue (for future orchestrator integration)
         self.orchestrator_alerts = []
@@ -541,12 +540,67 @@ class TriageAgentService:
             # Build analysis prompt
             prompt = self._build_triage_analysis_prompt(complaint_text, customer_context)
             
+            
+
             # Call Anthropic API
             response = await self._call_anthropic(prompt)
             
+            print(f"\n🔍 TRIAGE PROMPT BEING SENT:")
+            print(f"=" * 80)
+            print(prompt)
+            print(f"=" * 80)
+
             # Parse response
             analysis = self._parse_triage_response(response)
-            
+            print(f"\n🔍 PARSED ANALYSIS (BEFORE MODIFICATIONS):")
+            print(f"=" * 80)
+            print(json.dumps(analysis, indent=2))
+            print(f"=" * 80)
+                
+            if "confidence_scores" in analysis:
+                confidence_scores = analysis["confidence_scores"]
+                
+                # ✅ DEBUG: Print all confidence scores sorted
+                print(f"\n🔍 ALL CONFIDENCE SCORES (SORTED):")
+                print(f"=" * 80)
+                sorted_scores = sorted(confidence_scores.items(), key=lambda x: x[1], reverse=True)
+                for category, score in sorted_scores:
+                    print(f"  {category}: {score:.3f}")
+                print(f"=" * 80)
+
+                # Primary categories: >70% confidence
+                primary_categories = [cat for cat, score in confidence_scores.items() if score > 0.7]
+                
+                # Secondary categories: 50-70% confidence  
+                secondary_categories = [cat for cat, score in confidence_scores.items() if 0.5 <= score <= 0.7]
+                
+                # ✅ DEBUG: Print categorization logic
+                print(f"\n🔍 CATEGORIZATION LOGIC:")
+                print(f"  Primary categories (>70%): {primary_categories}")
+                print(f"  Secondary categories (50-70%): {secondary_categories}")
+                print(f"  Highest scoring category: {max(confidence_scores.keys(), key=lambda k: confidence_scores[k])}")
+                print(f"  Highest score: {max(confidence_scores.values()):.3f}")
+                
+                # Update the analysis with your logic
+                if primary_categories:
+                    analysis["primary_category"] = primary_categories[0]  # Highest confidence
+                    analysis["all_primary_categories"] = primary_categories
+                    analysis["secondary_categories"] = secondary_categories
+                    analysis["classification_method"] = "confidence_based"
+                    print(f"  ✅ USING CONFIDENCE-BASED: {primary_categories[0]}")
+                else:
+                    # Fallback if no category >70%
+                    analysis["primary_category"] = max(confidence_scores.keys(), key=lambda k: confidence_scores[k])
+                    analysis["classification_method"] = "fallback_highest"
+                    print(f"  ⚠️ USING FALLBACK (no >70%): {analysis['primary_category']}")
+
+            # ✅ DEBUG: Print final analysis
+            print(f"\n🔍 FINAL ANALYSIS (AFTER MODIFICATIONS):")
+            print(f"=" * 80)
+            print(f"  Primary Category: {analysis.get('primary_category')}")
+            print(f"  Classification Method: {analysis.get('classification_method')}")
+            print(f"  Confidence: {analysis.get('confidence_scores', {}).get(analysis.get('primary_category'), 'N/A')}")
+            print(f"=" * 80)
             return analysis
             
         except Exception as e:
@@ -608,7 +662,21 @@ Focus on INTENT and IMPACT, not just keywords. Consider the customer's emotional
         try:
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
             if json_match:
-                analysis = json.loads(json_match.group())
+                json_text = json_match.group()
+                
+                # ✅ DEBUG: Print JSON extraction
+                print(f"\n🔍 EXTRACTED JSON:")
+                print(f"=" * 50)
+                print(json_text)
+                print(f"=" * 50)
+                
+                analysis = json.loads(json_text)
+                
+                # ✅ DEBUG: Check if required fields exist
+                print(f"\n🔍 JSON PARSING CHECK:")
+                print(f"  Has 'primary_category': {'primary_category' in analysis}")
+                print(f"  Has 'confidence_scores': {'confidence_scores' in analysis}")
+                print(f"  Keys in response: {list(analysis.keys())}")
                 
                 # Add processing metadata
                 analysis.update({
@@ -619,11 +687,16 @@ Focus on INTENT and IMPACT, not just keywords. Consider the customer's emotional
                 
                 return analysis
             else:
+                print(f"❌ NO JSON FOUND in response")
                 return self._fallback_triage_analysis("")
-        except Exception as e:
-            print(f"Error parsing triage response: {e}")
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON DECODE ERROR: {e}")
+            print(f"❌ PROBLEMATIC JSON: {json_match.group() if json_match else 'No JSON found'}")
             return self._fallback_triage_analysis("")
-    
+        except Exception as e:
+            print(f"❌ Error parsing triage response: {e}")
+            return self._fallback_triage_analysis("")
+        
     def _fallback_triage_analysis(self, complaint_text: str) -> Dict[str, Any]:
         """Fallback analysis when AI fails"""
         text_lower = complaint_text.lower()
