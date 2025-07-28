@@ -830,6 +830,64 @@ What can I help you with today?"""
             else:
                 return f"{time_greeting}, {customer_name}! I'm Eva, your customer service assistant at Swiss Bank. I'm here to help resolve any concerns you might have quickly and efficiently.\n\nWhat brings you to us today?"
     
+    async def _generate_structured_empathetic_acknowledgment(self, complaint_text: str, customer_name: str) -> str:
+        """
+        GENERALIZED: Generate single-block structured response (no card parsing)
+        """
+        emoji = self._detect_complaint_category_for_emoji(complaint_text)
+        
+        prompt = f"""
+        Generate a structured empathetic response for this banking complaint:
+        
+        Customer: {customer_name}
+        Complaint: {complaint_text}
+        
+        Create a response with this EXACT structure (single message block):
+        
+        {emoji} {customer_name}, [empathetic acknowledgment of their situation]
+        
+        What I'm doing right now:
+        • [Immediate action 1]
+        • [Immediate action 2] 
+        • [Immediate action 3]
+        
+        Analysis Status:
+        • [Status item 1]: [icon] [description]
+        • [Status item 2]: [icon] [description]  
+        • [Status item 3]: [icon] [description]
+        
+        Guidelines:
+        - Use emojis instead of **bold headers** to avoid card parsing
+        - Make actions specific to the complaint category
+        - Use relevant icons (✅ ⚡ 🔍 🛡️ 📊 ⚖️ 🎯)
+        - Keep each line under 40 characters for chat UI
+        - Sound professional but caring
+        - This should render as ONE cohesive message block
+        """
+        
+        return await self._call_anthropic(prompt)
+
+    # ADD: Category detection helper
+    def _detect_complaint_category_for_emoji(self, complaint_text: str) -> str:
+        """Auto-detect appropriate emoji based on complaint content"""
+        category_patterns = {
+            r"fraud|unauthorized|stolen|suspicious": "🛡️",
+            r"mortgage|loan|payment|refinanc": "🏠", 
+            r"technical|login|app|website|online": "💻",
+            r"credit|card|limit|score": "💳",
+            r"account|balance|frozen|locked|access": "🔒",
+            r"fee|charge|billing|overdraft": "💰",
+            r"dispute|merchant|transaction": "⚖️",
+            r"insurance|claim|coverage": "🛡️",
+            r"investment|trading|portfolio": "📈"
+        }
+        
+        complaint_lower = complaint_text.lower()
+        for pattern, emoji in category_patterns.items():
+            if re.search(pattern, complaint_lower):
+                return emoji
+        return "🏦"  
+
     async def _generate_empathetic_acknowledgment(self, complaint_text: str, customer_name: str) -> str:
         """
         NEW: Generate natural empathetic acknowledgment based on complaint content
@@ -858,6 +916,7 @@ What can I help you with today?"""
             {customer_name}, I can see how concerned you are about these charges. 
             This is definitely not something you should have to deal with, and I'm here to help you get this resolved.
             """
+        
     async def _generate_empathetic_fallback(self, emotional_analysis: Dict[str, Any], 
                                           context: ConversationContext) -> Dict[str, Any]:
         """Generate empathetic fallback response"""
@@ -1953,16 +2012,10 @@ Respond as Eva with complete naturalness and professionalism.
         customer_name = context.customer_name
         
         # Step 1: Immediate empathetic response
-        initial_response = await self._generate_empathetic_acknowledgment(message, customer_name)
+        structured_response = await self._generate_structured_empathetic_acknowledgment(message, customer_name)
         
         # Step 2: Show triage analysis starting
-        analysis_message = f"""
-        {initial_response}
-        
-        Let me immediately connect with our specialist analysis team to get a complete picture of what's happening. 
-        I'm pulling up your account details and running this through our security and complaint classification protocols right now...
-        
-        """
+        analysis_message = f"""{structured_response} """
         
         # Step 3: Update conversation state and start background triage
         self.conversation_states[conversation_id] = {
@@ -3392,5 +3445,5 @@ I want to make sure our resolution plan addresses exactly what matters most to y
         except Exception as e:
             print(f"⚠️ Eva cleanup error: {e}")
 
-    
-    
+
+            

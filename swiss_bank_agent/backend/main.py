@@ -850,10 +850,7 @@ async def get_banking_constraints(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get banking constraints"
         )
-
-# REMOVED: update endpoints for categories and constraints (now hardcoded)
-# Only keeping realistic timelines update endpoint
-
+    
 @app.put("/api/config/realistic-timelines")
 async def update_realistic_timelines(
     timelines: str = Form(...),  
@@ -2205,7 +2202,7 @@ async def update_complaint_status(
         )
 
 # ==================== UTILITY FUNCTIONS (UNCHANGED) ====================
-
+    
 async def save_uploaded_file(file: UploadFile) -> str:
     """Save uploaded file and return file path"""
     upload_dir = "uploads"
