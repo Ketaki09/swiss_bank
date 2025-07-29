@@ -229,6 +229,7 @@ const CollapsibleCard = React.memo(({
 
 
 // simple text message component with better spacing for follow-up questions
+// Enhanced simple text message component with better spacing for follow-up questions
 const SimpleTextMessage = ({ content, messageId }: { content: string; messageId: string }) => {
   // Detect if this is a follow-up question message
   const isFollowUpQuestion = content.trim().endsWith('?') && 
@@ -2448,16 +2449,27 @@ const AuthenticatedEvaChat = () => {
                           {message.type === 'bot' ? (
                             (() => {
 
-                              // Check if this should use simple text formatting (like Bot 2)
-                              const shouldUseSimpleFormat = (message.content.includes("Perfect,") || 
-                                                            message.content.includes("Current Status:") ||
-                                                            message.content.includes("escalated") ||
-                                                            message.content.includes("routed") ||
-                                                            message.content.includes("tracking ID") ||
-                                                            message.content.includes("I've immediately escalated"));
+                              // Check if this should use simple text formatting (like Bot 4)
+                              const shouldUseSimpleFormat = (
+                                message.content.includes("Perfect,") || 
+                                message.content.includes("Current Status:") ||
+                                message.content.includes("escalated") ||
+                                message.content.includes("routed") ||
+                                message.content.includes("tracking ID") ||
+                                message.content.includes("I've immediately escalated")
+                              );
 
-                              if (shouldUseSimpleFormat) {
-                                console.log('🎯 Using simple text formatting like Bot 2');
+                              // NEW: Specific detection for Bot message 7 style (completion/summary messages)
+                              const isBotMessage7Style = (
+                                (message.content.includes("Thank you,") && message.content.includes("I have all the information needed")) ||
+                                (message.content.includes("What I'm doing right now:") && 
+                                message.content.includes("What happens next:") && 
+                                message.content.includes("Your next actions:") &&
+                                message.content.includes("Is there anything else I can help"))
+                              );
+
+                              if (shouldUseSimpleFormat || isBotMessage7Style) {
+                                console.log('🎯 Using simple text formatting like Bot 4');
                                 return <SimpleTextMessage content={message.content} messageId={message.id} />;
                               }
 

@@ -367,20 +367,20 @@ class EvaAgentService:
                 "security_action": "Immediate",
                 "investigation_start": "2-4 Working hours",
                 "provisional_credit_review": "1-3 business days",
-                "final_resolution": "3-5 business days",
+                "final_resolution": "1-2 business days",
                 "new_card_delivery": "24-48 hours"
             },
             "dispute_resolution_issues": {
                 "case_creation": "Immediate",
                 "investigation_start": "1-2 Working hours", 
                 "provisional_credit_review": "1-2 business days",
-                "final_resolution": "3-5 business days",
+                "final_resolution": "1-2 business days",
                 "appeal_process": "5-10 business days"
             },
             "default": {
                 "initial_response": "2-4 hours",
                 "investigation": "1-2 business days", 
-                "resolution": "3-5 business days"
+                "resolution": "1-2 business days"
             }
         }
 
@@ -1018,7 +1018,7 @@ What can I help you with today?"""
                 "sentiment": "negative",
                 "theme": "Transaction Dispute",
                 "confidence_score": 0.6,
-                "estimated_resolution": "3-5 business days",
+                "estimated_resolution": "1-2 business days",
                 "financial_impact": True,
                 "urgency_indicators": [],
                 "requires_callback": False,
@@ -1473,7 +1473,7 @@ Respond with JSON:
             return {
                 "investigation_start": "2 hours",
                 "provisional_credit_review": "24 hours",
-                "final_resolution": "3-5 business days"
+                "final_resolution": "1-2 business days"
             }
         elif "dispute" in complaint_category.lower():
             return {
@@ -1485,7 +1485,7 @@ Respond with JSON:
             return {
                 "investigation_start": "2-4 hours",
                 "file_review": "1 business day",
-                "final_resolution": "3-5 business days"
+                "final_resolution": "1-2 business days"
             }
         elif "technical" in complaint_category.lower() or "online" in complaint_category.lower():
             return {
@@ -1498,7 +1498,7 @@ Respond with JSON:
             return {
                 "investigation_start": "2-4 hours",
                 "review_process": "1-2 business days",
-                "final_resolution": "3-5 business days"
+                "final_resolution": "1-2 business days"
             }
 
     async def _generate_structured_resolution_response(self, customer_name: str, tracking_id: str, 
@@ -1559,7 +1559,7 @@ Respond with JSON:
     **What happens next:**
     • {specialist["name"]} will personally review your case within {timeline.get("investigation_start", "2-4 hours")}
     • Our {specialist["specialty"]} specialist will conduct thorough investigation of your concern
-    • You'll receive detailed findings and action plan within {timeline.get("final_resolution", "3-5 business days")}
+    • You'll receive detailed findings and action plan within {timeline.get("final_resolution", "1-2 business days")}
 
     **Your next actions:**
     • Monitor your email for updates from {specialist["name"]}'s team
@@ -1577,9 +1577,9 @@ Respond with JSON:
         return await self._call_anthropic(prompt)
 
     async def _generate_structured_followup_response(self, customer_name: str, tracking_id: str,
-                                               followup_decision: Dict[str, Any], 
-                                               max_questions: int,
-                                               triage_results: Dict[str, Any]) -> str:
+                                           followup_decision: Dict[str, Any], 
+                                           max_questions: int,
+                                           triage_results: Dict[str, Any]) -> str:
         """Generate structured response for cases needing follow-up questions - GENERALIZED"""
         
         # Get complaint category and specialist information
@@ -1601,49 +1601,34 @@ Respond with JSON:
         # Get realistic timeline for this category
         timeline = self._get_realistic_timeline(primary_category)
         
-        # Build structured prompt - UPDATED to end at the transition point
+        # Build PRECISE structured prompt - UPDATED to end exactly where needed
         prompt = f"""
-    Generate a structured banking response for a {friendly_category.lower()} complaint that needs {max_questions} follow-up questions.
+    Generate a banking response for a {friendly_category.lower()} complaint that needs {max_questions} follow-up questions.
 
-    CUSTOMER DETAILS:
-    - Customer: {customer_name}
-    - Tracking ID: {tracking_id}
-    - Complaint Type: {friendly_category}
-    - Urgency Level: {urgency_level}
-    - Additional Questions Needed: {max_questions}
+    CUSTOMER: {customer_name}
+    TRACKING ID: {tracking_id}
+    COMPLAINT TYPE: {friendly_category}
+    SPECIALIST: {specialist["name"]}, {specialist["title"]} with {specialist["experience"]} and {specialist["success_rate"]} resolution rate
 
-    ASSIGNED SPECIALIST:
-    - Name: {specialist["name"]}
-    - Title: {specialist["title"]}
-    - Experience: {specialist["experience"]}
-    - Specialty: {specialist["specialty"]}
-    - Success Rate: {specialist["success_rate"]}
+    Create response with this EXACT structure and STOP exactly where indicated:
 
-    Create a response with this EXACT structure that ENDS at the transition point:
-
-    Perfect, {customer_name}! I've immediately escalated your case to our customer relationship Manager.
+    Perfect! I've immediately escalated your case to our customer relationship Manager.
 
     **Current Status:** Your complaint has been routed and is now in the investigation queue with a tracking ID: {tracking_id}.
 
     **What I'm doing right now:**
-    • Routing your {friendly_category.lower()} case to {specialist["name"]}, our {specialist["title"]}
-    • Gathering additional details to brief {specialist["name"]} with complete case context
-    • Preparing comprehensive case file for {specialist["name"]} expert review
-
-    **What happens next:**
-    • {specialist["name"]} will review your complete case within {timeline.get("investigation_start", "2-4 hours")} after questions
-    • Our {specialist["specialty"]} expert will provide resolution within {timeline.get("final_resolution", "1-2 business days")}
+    • Routing your {friendly_category.lower()} case to {specialist["name"]}, our {specialist["title"]} who has over {specialist["experience"]} with {specialist["success_rate"]} resolution rate
+    • Preparing comprehensive case file for {specialist["name"]}'s expert review
 
     To ensure the fastest resolution, I need to gather {max_questions} additional detail{"s" if max_questions > 1 else ""} for {specialist["name"]}'s investigation:
 
-    IMPORTANT: End the response exactly at this point. Do NOT include any questions.
+    CRITICAL: End the response EXACTLY at the colon after "investigation:" - do NOT add any questions or additional content.
 
-    Guidelines:
-    - Make it specific to the complaint type ({friendly_category})
-    - Use the actual specialist's name and credentials throughout
-    - Reference their specific expertise area
-    - Make customer feel they have a real expert working on their case
-    - END at the transition statement about gathering details
+    Requirements:
+    - Use EXACT specialist name and credentials provided
+    - Keep bullet points short and direct
+    - Reference the specific complaint type
+    - END precisely at "investigation:" with no additional content
     """
         
         return await self._call_anthropic(prompt)
@@ -1774,7 +1759,7 @@ Respond with JSON:
     **What happens next:**
     • {specialist["name"]} will review your enhanced case file within {timeline.get("investigation_start", "2-4 hours")}
     • Our {specialist["specialty"]} expert will conduct comprehensive investigation
-    • You'll receive {specialist["name"]}'s findings and action plan within {timeline.get("final_resolution", "3-5 business days")}
+    • You'll receive {specialist["name"]}'s findings and action plan within {timeline.get("final_resolution", "1-2 business days")}
 
     **Your next actions:**
     • Monitor your email for updates from {specialist["name"]}'s team
