@@ -1638,13 +1638,27 @@ async def eva_chat_natural_flow(
             conversation_id=session_id
         )
         
-        print(f"🎯 NATURAL FLOW RESPONSE: {eva_response.get('stage', 'no-stage')}")  # ADD THIS LINE
+        print(f"🎯 NATURAL FLOW RESPONSE: {eva_response.get('stage', 'no-stage')}")
         
         # Save chat messages to database
         await db_service.save_chat_message(session_id, customer_id, message, is_bot=False)
         await db_service.save_chat_message(session_id, customer_id, eva_response["response"], is_bot=True)
         
-        return eva_response
+        # UPDATED: Return response with additional metadata for frontend handling
+        response_data = {
+            "response": eva_response["response"],
+            "conversation_id": eva_response["conversation_id"],
+            "stage": eva_response.get("stage"),
+            "emotional_state": eva_response.get("emotional_state"),
+            "background_processing": eva_response.get("background_processing", False),
+            "next_action": eva_response.get("next_action"),
+            "retry_in_seconds": eva_response.get("retry_in_seconds"),
+            "needs_first_question": eva_response.get("needs_first_question", False),  # NEW
+            "question_number": eva_response.get("question_number"),  # NEW
+            "ready_for_normal_chat": eva_response.get("ready_for_normal_chat", False)  # NEW
+        }
+        
+        return response_data
         
     except HTTPException:
         raise
@@ -1655,32 +1669,6 @@ async def eva_chat_natural_flow(
             detail=f"Eva natural flow error: {str(e)}"
         )
 
-# Add endpoint for continuing action sequence
-@app.post("/api/eva/continue-action-sequence")
-async def continue_eva_action_sequence(
-    session_id: str = Form(...),
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    eva_service: EvaAgentService = Depends(get_eva_service)
-):
-    """Continue Eva's action sequence (for timed messages)"""
-    try:
-        if session_id != current_user["session_id"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Session ID mismatch"
-            )
-        
-        # Continue action sequence
-        eva_response = await eva_service._continue_action_sequence(session_id)
-        
-        return eva_response
-        
-    except Exception as e:
-        print(f"❌ Error continuing action sequence: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Action sequence error: {str(e)}"
-        )
 
 @app.get("/api/eva/triage-status/{conversation_id}")
 async def get_triage_status(

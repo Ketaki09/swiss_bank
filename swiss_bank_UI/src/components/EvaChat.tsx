@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -81,7 +81,10 @@ interface EvaResponse {
   stage?: string;
   background_processing?: boolean;  
   next_action?: string;            
-  retry_in_seconds?: number;  
+  retry_in_seconds?: number;
+  needs_first_question?: boolean;
+  question_number?: number;
+  ready_for_normal_chat?: boolean; 
 }
 
 interface ParsedMessage {
@@ -134,7 +137,7 @@ const TriageAnalysisAnimation = () => (
   </div>
 );
 
-// CollapsibleCard Component with stable state management
+// CollapsibleCard Component with persistent state management
 const CollapsibleCard = React.memo(({ 
   title, 
   children, 
@@ -148,107 +151,234 @@ const CollapsibleCard = React.memo(({
   className?: string;
   cardId?: string;
 }) => {
-  // Use a stable key for state management
-  const stableKey = cardId || title;
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-
+  // Create a truly stable key that won't change across re-renders
+  const stableKey = useMemo(() => 
+    `collapsible_${cardId || title.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`, 
+    [cardId, title]
+  );
   
-  const handleToggle = useCallback(() => {
-    setIsExpanded(prev => !prev);
-  }, []);
+  // Use a ref to maintain state across re-renders and prevent auto-closing
+  const [isExpanded, setIsExpanded] = useState(() => {
+    // Try to get saved state from sessionStorage as fallback, but default to defaultExpanded
+    try {
+      const saved = sessionStorage.getItem(stableKey);
+      return saved !== null ? JSON.parse(saved) : defaultExpanded;
+    } catch {
+      return defaultExpanded;
+    }
+  });
+
+  // Persist state to prevent auto-closing during re-renders
+  const handleToggle = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    setIsExpanded(prev => {
+      const newState = !prev;
+      // Save state to sessionStorage to persist across re-renders
+      try {
+        sessionStorage.setItem(stableKey, JSON.stringify(newState));
+      } catch {
+        // Ignore sessionStorage errors
+      }
+      return newState;
+    });
+  }, [stableKey]);
+
+  // Prevent the component from losing state during parent re-renders
+  const memoizedContent = useMemo(() => children, [children]);
   
   return (
     <div className={`border border-black/20 rounded-lg transition-all duration-200 ${className}`}>
       <button
         onClick={handleToggle}
-        className="w-full flex items-center justify-between p-3 text-left hover:bg-black/5 transition-colors"
-        type="button" // Prevent form submission if inside a form
+        className="w-full flex items-center justify-between p-3 text-left hover:bg-black/5 transition-colors focus:outline-none focus:ring-2 focus:ring-black/20"
+        type="button"
+        aria-expanded={isExpanded}
+        aria-controls={`${stableKey}-content`}
       >
         <span className="font-semibold text-sm text-black">{title}</span>
-        <div className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : 'rotate-0'}`}>
-          ▼
+        <div className={`transform transition-transform duration-300 ease-in-out ${isExpanded ? 'rotate-180' : 'rotate-0'}`}>
+          <svg 
+            className="w-4 h-4 text-black/70" 
+            fill="none" 
+            stroke="currentColor" 
+            viewBox="0 0 24 24"
+          >
+            <path 
+              strokeLinecap="round" 
+              strokeLinejoin="round" 
+              strokeWidth={2} 
+              d="M19 9l-7 7-7-7" 
+            />
+          </svg>
         </div>
       </button>
       
       {isExpanded && (
-        <div className="px-3 pb-3 space-y-2 animate-in slide-in-from-top-2 duration-200">
-          {children}
+        <div 
+          id={`${stableKey}-content`}
+          className="px-3 pb-3 space-y-2 animate-in slide-in-from-top-2 duration-200"
+        >
+          {memoizedContent}
         </div>
       )}
     </div>
   );
 });
 
-// Simple text message component like Bot 2
+
+// simple text message component with better spacing for follow-up questions
 const SimpleTextMessage = ({ content, messageId }: { content: string; messageId: string }) => {
+  // Detect if this is a follow-up question message
+  const isFollowUpQuestion = content.trim().endsWith('?') && 
+                            (content.toLowerCase().includes('can you tell me') ||
+                             content.toLowerCase().includes('approximately when') ||
+                             content.toLowerCase().includes('how many') ||
+                             content.toLowerCase().includes('what') ||
+                             content.length < 200); // Simple question pattern
+
   return (
-    <div className="text-sm text-black space-y-2 p-4">
+    <div className={`text-sm text-black ${isFollowUpQuestion ? 'space-y-3 p-6' : 'space-y-2 p-4'}`}>
       {content.split('\n').map((line, lineIndex) => {
         const trimmed = line.trim();
         if (!trimmed) return <div key={lineIndex} className="h-2" />; // Spacing
         
-        // Clean the line by removing markdown asterisks
-        const cleanedLine = trimmed.replace(/\*\*/g, '');
+        // Clean the line by removing all markdown asterisks and bullet points
+        const cleanedLine = trimmed.replace(/\*+/g, '').replace(/^•\s*/, '').trim();
         
         // Detect different line types
         const isMainGreeting = lineIndex === 0 && !cleanedLine.includes(':');
-        const isStatusLine = cleanedLine.toLowerCase().includes('status') || 
-                           cleanedLine.toLowerCase().includes('tracking') || 
-                           cleanedLine.toLowerCase().includes('escalated');
-        const isNextStepsLine = cleanedLine.toLowerCase().includes('specialist') || 
-                               cleanedLine.toLowerCase().includes('investigating') ||
-                               cleanedLine.toLowerCase().includes('updates');
-        const isQuestionLine = cleanedLine.includes('?');
-        const isGatheringLine = cleanedLine.toLowerCase().includes('gather') || 
-                               cleanedLine.toLowerCase().includes('additional details');
         
-        // Apply appropriate styling
+        // Detect section headings that need to be bold
+        const isBoldHeading = (
+          cleanedLine.toLowerCase().startsWith('current status:') ||
+          cleanedLine.toLowerCase().startsWith('what i\'m doing right now:') ||
+          cleanedLine.toLowerCase().startsWith('what happens next:') ||
+          cleanedLine.toLowerCase().startsWith('your next actions:')
+        );
+        
+        // Detect the specific investigation text that needs to be bold
+        const isInvestigationText = cleanedLine.toLowerCase().includes('to ensure the fastest resolution') && 
+                                  cleanedLine.toLowerCase().includes('additional details');
+
+        // Detect bullet point content under specific headings
+        const isInBulletSection = () => {
+          const allLines = content.split('\n').map(l => l.trim().replace(/\*+/g, '').replace(/^•\s*/, '').trim());
+          let foundBulletSectionStart = false;
+          
+          for (let i = 0; i <= lineIndex; i++) {
+            const currentLine = allLines[i].toLowerCase();
+            
+            // Check if we hit a bullet section heading
+            if (currentLine.startsWith('what i\'m doing right now:') || 
+                currentLine.startsWith('what happens next:') || 
+                currentLine.startsWith('your next actions:')) {
+              foundBulletSectionStart = true;
+              continue;
+            }
+
+            // If we found a bullet section and hit another major heading, stop
+            if (foundBulletSectionStart && 
+                (currentLine.startsWith('current status:') || 
+                currentLine.includes('to ensure the fastest') ||
+                currentLine.includes('?'))) {
+              foundBulletSectionStart = false;
+            }
+          }
+          
+          return foundBulletSectionStart;
+        };
+
+        const isBulletContent = isInBulletSection() && !isBoldHeading && !isInvestigationText && !cleanedLine.includes('?');
+
+        // Restore missing variables
+        const isStatusLine = (
+          cleanedLine.toLowerCase().includes('tracking id:') || 
+          cleanedLine.toLowerCase().includes('has been routed') ||
+          cleanedLine.toLowerCase().includes('escalated your case')
+        ) && !cleanedLine.toLowerCase().startsWith('current status:');
+
+        const isQuestionLine = cleanedLine.includes('?');
+
+        // Apply appropriate styling with enhanced spacing for follow-up questions
         if (isMainGreeting) {
           return (
-            <div key={lineIndex} className="leading-relaxed mb-3 font-medium">
+            <div key={lineIndex} className={`leading-relaxed font-medium ${isFollowUpQuestion ? 'mb-4' : 'mb-3'}`}>
               {cleanedLine}
+            </div>
+          );
+        }
+        
+        // Task 1: Bold headings
+        if (isBoldHeading) {
+          // Split heading from content
+          const parts = cleanedLine.split(':');
+          const heading = parts[0] + ':';
+          const content = parts.slice(1).join(':').trim();
+          
+          return (
+            <div key={lineIndex} className={`leading-relaxed ${isFollowUpQuestion ? 'mb-3' : 'mb-2'}`}>
+              <span className="font-bold">{heading}</span>
+              {content && <span className="font-normal ml-1">{content}</span>}
+            </div>
+          );
+        }
+                
+        // Task 3: Bold investigation text
+        if (isInvestigationText) {
+          return (
+            <div key={lineIndex} className={`leading-relaxed font-bold ${isFollowUpQuestion ? 'mb-3' : 'mb-2'}`}>
+              {cleanedLine}
+            </div>
+          );
+        }
+        
+        // Task 2: Bullet point content
+        if (isBulletContent) {
+          return (
+            <div key={lineIndex} className={`leading-relaxed ml-4 flex items-start ${isFollowUpQuestion ? 'mb-3' : 'mb-2'}`}>
+              <span className="mr-2 mt-1 text-black/70">•</span>
+              <span>{cleanedLine}</span>
             </div>
           );
         }
         
         if (isStatusLine) {
+          // Check if this line contains tracking ID
+          if (cleanedLine.toLowerCase().includes('tracking id:')) {
+            const parts = cleanedLine.split(':');
+            const beforeColon = parts[0] + ':';
+            const afterColon = parts.slice(1).join(':').trim();
+            
+            return (
+              <div key={lineIndex} className={`leading-relaxed bg-black/5 p-2 rounded ${isFollowUpQuestion ? 'mb-3' : 'mb-2'}`}>
+                {beforeColon} <span className="font-bold">{afterColon}</span>
+              </div>
+            );
+          }
+          
           return (
-            <div key={lineIndex} className="leading-relaxed mb-2 bg-black/5 p-2 rounded">
-              <span className="font-semibold">📊 Current Status: </span>
-              {cleanedLine.replace(/^current status:\s*/i, '')}
-            </div>
-          );
-        }
-        
-        if (isNextStepsLine) {
-          return (
-            <div key={lineIndex} className="leading-relaxed mb-2">
-              <span className="font-semibold">⏱️ </span>
-              {cleanedLine}
-            </div>
-          );
-        }
-        
-        if (isGatheringLine) {
-          return (
-            <div key={lineIndex} className="leading-relaxed mb-2 mt-4">
-              <span className="font-semibold">🔍 </span>
+            <div key={lineIndex} className={`leading-relaxed bg-black/5 p-2 rounded ${isFollowUpQuestion ? 'mb-3' : 'mb-2'}`}>
               {cleanedLine}
             </div>
           );
         }
         
         if (isQuestionLine) {
+          // Enhanced spacing and styling for follow-up questions
           return (
-            <div key={lineIndex} className="leading-relaxed mt-3 italic bg-blue-50 p-2 rounded border-l-4 border-blue-400">
+            <div key={lineIndex} className={`leading-relaxed font-medium bg-blue-50 rounded border-l-4 border-blue-400 italic ${
+              isFollowUpQuestion ? 'mb-4 p-6 text-base' : 'mb-3 p-4'
+            }`}>
               {cleanedLine}
             </div>
           );
         }
-        
-        // Default line
+                
+        // Default line with enhanced spacing for follow-up questions
         return (
-          <div key={lineIndex} className="leading-relaxed mb-2">
+          <div key={lineIndex} className={`leading-relaxed ${isFollowUpQuestion ? 'mb-3' : 'mb-2'}`}>
             {cleanedLine}
           </div>
         );
@@ -755,14 +885,14 @@ const AuthenticatedEvaChat = () => {
         
         {/* Classification Summary (Always Visible) */}
         {parsedResponse.classification && (
-          <div className="bg-black/10 border border-black/20 rounded-lg p-3">
-            <h4 className="font-semibold text-sm text-black mb-2">
-              Analysis Complete - Classification Results
-            </h4>
-            <div className="space-y-1 text-sm text-black">
-              <div><strong>Primary Category:</strong> {parsedResponse.classification.primary}</div>
-              <div><strong>Secondary Category:</strong> {parsedResponse.classification.secondary}</div>
-              <div><strong>Confidence Level:</strong> {parsedResponse.classification.confidence}</div>
+          <div className="space-y-1 text-sm text-black">
+            <div className="font-bold text-sm text-black mb-3 pb-1 border-b-2 border-black/30">
+                Analysis Complete - Classification Results
+            </div>
+            <div className="space-y-1 text-sm text-black ml-4">
+              <div><strong>Primary Category:</strong> {parsedResponse.classification.primary.replace(/\*+\s*/g, '')}</div>
+              <div><strong>Secondary Category:</strong> {parsedResponse.classification.secondary.replace(/\*+\s*/g, '')}</div>
+              <div><strong>Confidence Level:</strong> {parsedResponse.classification.confidence.replace(/\*+\s*/g, '')}</div>
             </div>
           </div>
         )}
@@ -1733,230 +1863,218 @@ const AuthenticatedEvaChat = () => {
 
   // Handle sending messages
   const handleSendMessage = async (content: string, type: 'text' | 'voice' | 'image' | 'document' = 'text') => {
-    if (!content.trim() && type === 'text') return;
-    if (!isAuthenticated) {
-      toast.error('Please authenticate first');
-      return;
-    }
+  if (!content.trim() && type === 'text') return;
+  if (!isAuthenticated) {
+    toast.error('Please authenticate first');
+    return;
+  }
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      type: 'user',
-      content,
-      timestamp: new Date(),
-      messageType: type
-    };
+  const userMessage: Message = {
+    id: Date.now().toString(),
+    type: 'user',
+    content,
+    timestamp: new Date(),
+    messageType: type
+  };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInputText('');
-    resetInputHeight();
-    setIsProcessing(true);
+  setMessages(prev => [...prev, userMessage]);
+  setInputText('');
+  resetInputHeight();
+  setIsProcessing(true);
 
-    try {
-      const formData = new FormData();
-      formData.append('message', content);
-      formData.append('session_id', sessionId!);
+  try {
+    const formData = new FormData();
+    formData.append('message', content);
+    formData.append('session_id', sessionId!);
 
-      console.log('🤖 Sending message to Eva Agent:', content);
+    console.log('🤖 Sending message to Eva Agent:', content);
 
-      const response = await fetch(`${config.backendUrl}/api/eva/chat-natural`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${sessionId}`
-        },
-        body: formData
-      });
+    const response = await fetch(`${config.backendUrl}/api/eva/chat-natural`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${sessionId}`
+      },
+      body: formData
+    });
 
-      console.log('📡 Response status:', response.status);
+    console.log('📡 Response status:', response.status);
 
-      if (response.ok) {
-        const data: EvaResponse = await response.json();
-        console.log('🤖 Eva Response received:', data);
-        console.log('🎯 Eva Stage:', data.stage);
-        
-        // Clean response
-        const cleanedResponse = data.response
-          .replace(/\*\[Analysis in progress[^\]]*\]\*/g, '')
-          .replace(/\.\.\.\s*$/g, '')
-          .trim();
-        
-        const { parsedMessage, followUpQuestions } = parseEvaMessage(cleanedResponse);
-        
-        const botMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: 'bot',
-          content: cleanedResponse,
-          timestamp: new Date(),
-          messageType: 'text',
-          emotional_state: data.emotional_state,
-          classification_pending: data.classification_pending,
-          requires_confirmation: data.requires_confirmation
-        };
-        
-        setMessages(prev => [...prev, botMessage]);
-        
-        // Check if needs background processing
-        const needsBackgroundProcessing = (
-          data.stage === 'triage_analysis_initiated' || 
-          data.background_processing === true ||
-          data.response.includes('analyzing') ||
-          data.response.includes('analysis in progress') ||
-          data.stage === 'awaiting_triage_results'
-        );
-        
-        console.log('🎯 Needs background processing:', needsBackgroundProcessing, 'Stage:', data.stage);
-        
-        if (needsBackgroundProcessing) {
-          console.log('🎯 Starting analysis animation WITH AUTO-POLLING');
-          setShowAnalysisAnimation(true);
-          
-          // Start polling for triage results after 3 seconds
-          setTimeout(async () => {
-            try {
-              // First check if results are ready without sending new message
-              const statusResponse = await fetch(`${config.backendUrl}/api/eva/triage-status/${sessionId}`, {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${sessionId}` }
-              });
-              
-              if (statusResponse.ok) {
-                const statusData = await statusResponse.json();
-                
-                if (statusData.triage_results_ready) {
-                  // Results are ready, get them by sending a continue message
-                  const formData = new FormData();
-                  formData.append('message', 'continue_triage'); // Special trigger
-                  formData.append('session_id', sessionId!);
-                  
-                  const response = await fetch(`${config.backendUrl}/api/eva/chat-natural`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${sessionId}` },
-                    body: formData
-                  });
-                  
-                  if (response.ok) {
-                    const resultData = await response.json();
-                    
-                    setShowAnalysisAnimation(false);
-                    
-                    const triageMessage: Message = {
-                      id: (Date.now() + 2).toString(),
-                      type: 'bot',
-                      content: resultData.response,
-                      timestamp: new Date(),
-                      messageType: 'text'
-                    };
-                    
-                    setMessages(prev => [...prev, triageMessage]);                   
-                  }
-                } else {
-                  // Results not ready yet, continue showing animation
-                  setShowAnalysisAnimation(false);
-                  console.log('🎯 Triage results not ready yet');
-                }
-              }
-            } catch (error) {
-              console.error('Auto-polling error:', error);
-              setShowAnalysisAnimation(false);
-            }
-          }, 3000); // 3 seconds like in test case
-        }
-
-        // Handle confirmation requirements
-        if (data.requires_confirmation && data.classification_pending) {
-          setPendingClassification(data.classification_pending);
-          setAwaitingFeedback(true);
-          
-          setTimeout(() => {
-            addSystemMessage(
-              `🔍 I've analyzed your message and classified it as: "${data.classification_pending!.theme}". ` +
-              `Is this correct? Please respond with "Yes, exactly right!" or "No, that's not quite right" to help me learn.`
-            );
-          }, 1000);
-        }
-
-        // NO auto-play - only manual play when user clicks speaker button
-
-        // Handle sequential messages
-        if (data.sequential_messages_active && data.next_message_in_seconds) {
-          setPendingSequentialMessage({
-            conversationId: sessionId!,
-            nextMessageTime: Date.now() + (data.next_message_in_seconds * 1000)
-          });
-        }
-
-        // Handle follow-up questions
-        if (followUpQuestions.length > 0) {
-          addFollowUpQuestions(followUpQuestions);
-        }
-
-      } else {
-        const errorText = await response.text();
-        console.error('❌ Eva API Error:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText
-        });
-        throw new Error(`Eva API failed: ${response.status} - ${errorText}`);
-      }
-    } catch (error) {
-      console.error('❌ Eva chat error:', error);
+    if (response.ok) {
+      const data: EvaResponse = await response.json();
+      console.log('🤖 Eva Response received:', data);
+      console.log('🎯 Eva Stage:', data.stage);
       
-      const errorMessage = (error as Error).message.toLowerCase();
-      let fallbackMessage = `I apologize, ${customerData?.name || 'valued customer'}. `;
+      // Clean response
+      const cleanedResponse = data.response
+        .replace(/\*\[Analysis in progress[^\]]*\]\*/g, '')
+        .replace(/\.\.\.\s*$/g, '')
+        .trim();
       
-      if (errorMessage.includes('triage')) {
-        fallbackMessage += `I'm having trouble analyzing your request right now. Our team has been notified and will review your message manually.`;
-      } else {
-        fallbackMessage += `I'm experiencing a technical issue with my AI systems. Let me try to help you in a different way. What specific banking service do you need assistance with today?`;
-      }
+      const { parsedMessage, followUpQuestions } = parseEvaMessage(cleanedResponse);
       
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'bot',
-        content: fallbackMessage,
+        content: cleanedResponse,
         timestamp: new Date(),
-        messageType: 'text'
+        messageType: 'text',
+        emotional_state: data.emotional_state,
       };
       
       setMessages(prev => [...prev, botMessage]);
-      addSystemMessage(`⚠️ ${errorMessage.includes('triage') ? 'Triage system' : 'Eva AI'} temporarily offline. Error: ${(error as Error).message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
-  // Detect confirmation responses
-  useEffect(() => {
-  if (!awaitingFeedback || messages.length === 0) return;
-  
-  const lastMessage = messages[messages.length - 1];
-  
-  // Only process USER messages, and only process each message once
-  if (lastMessage.type === 'user' && !lastMessage.processed) {
-    const content = lastMessage.content.toLowerCase();
-    
-    console.log('🎯 Checking for confirmation in user message:', content);
-    
-    // Mark message as processed to prevent duplicate processing
-    setMessages(prev => prev.map(msg => 
-      msg.id === lastMessage.id ? { ...msg, processed: true } : msg
-    ));
-    
-    if (content.includes('yes') || content.includes('correct') || content.includes('exactly') || content.includes('right')) {
-      console.log('✅ Positive confirmation detected');
-      handleClassificationConfirmation('Yes, exactly right!');
-    } else if (content.includes('no') || content.includes('wrong') || content.includes('not right') || content.includes('incorrect')) {
-      console.log('❌ Negative confirmation detected');
-      handleClassificationConfirmation('No, that\'s not quite right');
-    } else if (content.includes('partially') || content.includes('sort of') || content.includes('close but')) {
-      console.log('🔄 Partial confirmation detected');
-      handleClassificationConfirmation('Partially correct, but not exactly');
+      // Handle separated question flow
+      if (data.stage === "ready_for_first_question" && data.needs_first_question) {
+        console.log('🎯 Triggering first follow-up question after delay');
+        
+        // Automatically trigger the first question after a short delay
+        setTimeout(async () => {
+          try {
+            const formData = new FormData();
+            formData.append('message', 'continue_first_question'); // Special trigger
+            formData.append('session_id', sessionId!);
+            
+            const questionResponse = await fetch(`${config.backendUrl}/api/eva/chat-natural`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${sessionId}` },
+              body: formData
+            });
+            
+            if (questionResponse.ok) {
+              const questionData = await questionResponse.json();
+              
+              const questionMessage: Message = {
+                id: (Date.now() + 3).toString(),
+                type: 'bot',
+                content: questionData.response,
+                timestamp: new Date(),
+                messageType: 'text'
+              };
+              
+              setMessages(prev => [...prev, questionMessage]);
+              console.log('✅ First follow-up question added');
+            }
+          } catch (error) {
+            console.error('❌ Error getting first question:', error);
+          }
+        }, 1500); 
+      }
+
+      // Check if needs background processing
+      const needsBackgroundProcessing = (
+        data.stage === 'triage_analysis_initiated' || 
+        data.background_processing === true ||
+        data.response.includes('analyzing') ||
+        data.response.includes('analysis in progress') ||
+        data.stage === 'awaiting_triage_results'
+      );
+      
+      console.log('🎯 Needs background processing:', needsBackgroundProcessing, 'Stage:', data.stage);
+      
+      if (needsBackgroundProcessing) {
+        console.log('🎯 Starting analysis animation WITH AUTO-POLLING');
+        setShowAnalysisAnimation(true);
+        
+        // Start polling for triage results after 3 seconds
+        setTimeout(async () => {
+          try {
+            // First check if results are ready without sending new message
+            const statusResponse = await fetch(`${config.backendUrl}/api/eva/triage-status/${sessionId}`, {
+              method: 'GET',
+              headers: { 'Authorization': `Bearer ${sessionId}` }
+            });
+            
+            if (statusResponse.ok) {
+              const statusData = await statusResponse.json();
+              
+              if (statusData.triage_results_ready) {
+                // Results are ready, get them by sending a continue message
+                const formData = new FormData();
+                formData.append('message', 'continue_triage'); // Special trigger
+                formData.append('session_id', sessionId!);
+                
+                const response = await fetch(`${config.backendUrl}/api/eva/chat-natural`, {
+                  method: 'POST',
+                  headers: { 'Authorization': `Bearer ${sessionId}` },
+                  body: formData
+                });
+                
+                if (response.ok) {
+                  const resultData = await response.json();
+                  
+                  setShowAnalysisAnimation(false);
+                  
+                  const triageMessage: Message = {
+                    id: (Date.now() + 2).toString(),
+                    type: 'bot',
+                    content: resultData.response,
+                    timestamp: new Date(),
+                    messageType: 'text'
+                  };
+                  
+                  setMessages(prev => [...prev, triageMessage]);                   
+                }
+              } else {
+                // Results not ready yet, continue showing animation
+                setShowAnalysisAnimation(false);
+                console.log('🎯 Triage results not ready yet');
+              }
+            }
+          } catch (error) {
+            console.error('Auto-polling error:', error);
+            setShowAnalysisAnimation(false);
+          }
+        }, 3000); // 3 seconds like in test case
+      }
+      
+      // Handle sequential messages
+      if (data.sequential_messages_active && data.next_message_in_seconds) {
+        setPendingSequentialMessage({
+          conversationId: sessionId!,
+          nextMessageTime: Date.now() + (data.next_message_in_seconds * 1000)
+        });
+      }
+
+      // Handle follow-up questions
+      if (followUpQuestions.length > 0) {
+        addFollowUpQuestions(followUpQuestions);
+      }
+
     } else {
-      console.log('🤷 No clear confirmation pattern detected');
+      const errorText = await response.text();
+      console.error('❌ Eva API Error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      });
+      throw new Error(`Eva API failed: ${response.status} - ${errorText}`);
     }
+  } catch (error) {
+    console.error('❌ Eva chat error:', error);
+    
+    const errorMessage = (error as Error).message.toLowerCase();
+    let fallbackMessage = `I apologize, ${customerData?.name || 'valued customer'}. `;
+    
+    if (errorMessage.includes('triage')) {
+      fallbackMessage += `I'm having trouble analyzing your request right now. Our team has been notified and will review your message manually.`;
+    } else {
+      fallbackMessage += `I'm experiencing a technical issue with my AI systems. Let me try to help you in a different way. What specific banking service do you need assistance with today?`;
+    }
+    
+    const botMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      type: 'bot',
+      content: fallbackMessage,
+      timestamp: new Date(),
+      messageType: 'text'
+    };
+    
+    setMessages(prev => [...prev, botMessage]);
+    addSystemMessage(`⚠️ ${errorMessage.includes('triage') ? 'Triage system' : 'Eva AI'} temporarily offline. Error: ${(error as Error).message}`);
+  } finally {
+    setIsProcessing(false);
   }
-}, [messages, awaitingFeedback, handleClassificationConfirmation]);
+};
 
   // Voice input with timeout and animations
   const handleVoiceInput = async () => {
@@ -2331,14 +2449,12 @@ const AuthenticatedEvaChat = () => {
                             (() => {
 
                               // Check if this should use simple text formatting (like Bot 2)
-                              const shouldUseSimpleFormat = !message.content.includes("**What I'm doing right now:**") && 
-                                                          !message.content.includes("**What happens next:**") && 
-                                                          !message.content.includes("**Your next actions:**") &&
-                                                          (message.content.includes("Perfect,") || 
+                              const shouldUseSimpleFormat = (message.content.includes("Perfect,") || 
                                                             message.content.includes("Current Status:") ||
                                                             message.content.includes("escalated") ||
                                                             message.content.includes("routed") ||
-                                                            message.content.includes("tracking ID"));
+                                                            message.content.includes("tracking ID") ||
+                                                            message.content.includes("I've immediately escalated"));
 
                               if (shouldUseSimpleFormat) {
                                 console.log('🎯 Using simple text formatting like Bot 2');
@@ -2573,16 +2689,6 @@ const AuthenticatedEvaChat = () => {
           {/* Enhanced Input Area */}
           {isAuthenticated && (
             <div className="!p-3 bg-black border-t border-gray-700 mt-auto">
-              {/* Show awaiting feedback indicator */}
-              {awaitingFeedback && (
-                <div className="mb-2 p-2 bg-blue-900/20 border border-blue-500/50 rounded text-xs text-blue-400">
-                  <div className="flex items-center space-x-2">
-                    <Brain className="w-3 h-3 animate-pulse" />
-                    <span>Awaiting your feedback to improve my learning...</span>
-                  </div>
-                </div>
-              )}
-              
               <div className="flex items-end space-x-2">
                 <Button
                   variant="ghost"

@@ -141,7 +141,7 @@ class EvaAgentService:
             "poor_customer_service_communication"
         ]
             
-        # HARDCODED: Banking policy constraints (no longer from database)
+        # Banking policy constraints (no longer from database)
         self.banking_constraints = {
             "no_instant_refunds": {
                 "enabled": True,
@@ -245,9 +245,6 @@ class EvaAgentService:
         
         return [alternatives.get(violation, "realistic timeline communication") for violation in violations]
     
-    def _get_realistic_timeline(self, complaint_category: str) -> Dict[str, str]:
-        """Get realistic timeline for complaint category from database"""
-        return self.realistic_timelines.get(complaint_category, self.realistic_timelines.get("default", {}))
     
     def _calculate_accuracy_metrics(self) -> Dict[str, float]:
         """Calculate accuracy metrics from feedback history"""
@@ -289,11 +286,6 @@ class EvaAgentService:
             "loan_issues_auto_personal_student": "Loan servicing issue",
             "insurance_claim_denials_delays": "Insurance claim issue"
         }
-        # ✅ DEBUG: Print translation lookup
-        print(f"\n🔍 CATEGORY TRANSLATION:")
-        print(f"  Input category: '{category}'")
-        print(f"  Found translation: {'Yes' if category in translations else 'No'}")
-        print(f"  Output: '{translations.get(category, 'Banking service inquiry')}'")
         
         return translations.get(category, "Banking service inquiry")
     
@@ -1296,8 +1288,8 @@ Respond with JSON:
     # ========================= RESPONSE GENERATION METHODS ====================
 
     async def _build_eva_prompt(self, message: str, context: ConversationContext,
-                               emotional_analysis: Dict[str, Any], 
-                               complaint_classification: Optional[Dict[str, Any]]) -> str:
+                           emotional_analysis: Dict[str, Any], 
+                           complaint_classification: Optional[Dict[str, Any]]) -> str:
         """Build comprehensive prompt for Eva"""
         
         # Get conversation history (last 5 exchanges)
@@ -1312,67 +1304,67 @@ Respond with JSON:
         if emotional_analysis["empathy_needed"]:
             emotion_context = f"\nCustomer appears {emotional_analysis['primary_emotion']} with {emotional_analysis['emotion_intensity']} intensity. Show appropriate empathy."
         
-        # Complaint classification context
+        # Complaint classification context - UPDATED to handle None
         classification_context = ""
         if complaint_classification:
             classification_context = f"""
             
-COMPLAINT CLASSIFICATION DETECTED:
-Primary Category: {complaint_classification.get('primary_category', 'Unknown')}
-Secondary Category: {complaint_classification.get('sub_category', 'None')}
-Priority: {complaint_classification.get('priority', 'medium')}
-Confidence: {complaint_classification.get('confidence_score', 0):.2f}
+    COMPLAINT CLASSIFICATION DETECTED:
+    Primary Category: {complaint_classification.get('primary_category', 'Unknown')}
+    Secondary Category: {complaint_classification.get('sub_category', 'None')}
+    Priority: {complaint_classification.get('priority', 'medium')}
+    Confidence: {complaint_classification.get('confidence_score', 0):.2f}
 
-You need to explain this classification to the customer and ask for confirmation.
-"""
+    You need to explain this classification to the customer and ask for confirmation.
+    """
         
         return f"""
-You are Eva, the personal relationship manager for Swiss Bank. You provide premium, personalized banking assistance with the warmth and expertise of a dedicated relationship banker.
+    You are Eva, the personal relationship manager for Swiss Bank. You provide premium, personalized banking assistance with the warmth and expertise of a dedicated relationship banker.
 
-CUSTOMER INFORMATION:
-- Name: {context.customer_name}
-- Customer ID: {context.customer_id}
-- Conversation Context: This is an ongoing conversation
+    CUSTOMER INFORMATION:
+    - Name: {context.customer_name}
+    - Customer ID: {context.customer_id}
+    - Conversation Context: This is an ongoing conversation
 
-RECENT CONVERSATION:
-{conversation_history}
+    RECENT CONVERSATION:
+    {conversation_history}
 
-CURRENT MESSAGE: {message}
-{emotion_context}
-{classification_context}
+    CURRENT MESSAGE: {message}
+    {emotion_context}
+    {classification_context}
 
-YOUR RESPONSE GUIDELINES:
+    YOUR RESPONSE GUIDELINES:
 
-1. CONVERSATION MEMORY: Always reference previous conversations and show complete understanding of ongoing issues.
+    1. CONVERSATION MEMORY: Always reference previous conversations and show complete understanding of ongoing issues.
 
-2. NEXT STEPS FORMAT: Always structure your response with clear bullet points:
-   **What I'm doing right now:**
-   • [Immediate actions you're taking]
-   
-   **What happens next:**
-   • [Timeline and next steps]
-   
-   **Your next actions:**
-   • [What the customer should do]
+    2. NEXT STEPS FORMAT: Always structure your response with clear bullet points:
+    **What I'm doing right now:**
+    • [Immediate actions you're taking]
+    
+    **What happens next:**
+    • [Timeline and next steps]
+    
+    **Your next actions:**
+    • [What the customer should do]
 
-3. EMOTIONAL INTELLIGENCE: 
-   - If customer gives compliments: Accept gracefully with genuine appreciation
-   - If customer is frustrated/angry: Show patience and understanding without being defensive
-   - Always acknowledge their emotional state appropriately
+    3. EMOTIONAL INTELLIGENCE: 
+    - If customer gives compliments: Accept gracefully with genuine appreciation
+    - If customer is frustrated/angry: Show patience and understanding without being defensive
+    - Always acknowledge their emotional state appropriately
 
-4. HUMAN SPECIALISTS: When mentioning specialists, use real names with credentials:
-   - Never say "our fraud team" - say "Sarah Chen, our Senior Fraud Investigator with 8 years of experience"
-   - Include their specialty and success rate when relevant
+    4. HUMAN SPECIALISTS: When mentioning specialists, use real names with credentials:
+    - Never say "our fraud team" - say "Sarah Chen, our Senior Fraud Investigator with 8 years of experience"
+    - Include their specialty and success rate when relevant
 
-5. NATURAL CONVERSATION: 
-   - Be conversational and warm, not corporate or robotic
-   - Use the customer's name naturally
-   - Show personal investment in their success
-   
-If this is a complaint classification, explain the categories in customer-friendly language and ask for confirmation.
+    5. NATURAL CONVERSATION: 
+    - Be conversational and warm, not corporate or robotic
+    - Use the customer's name naturally
+    - Show personal investment in their success
+    
+    {'If this is a complaint classification, explain the categories in customer-friendly language and ask for confirmation.' if complaint_classification else 'Respond naturally to continue the conversation.'}
 
-Respond as Eva with complete naturalness and professionalism.
-"""
+    Respond as Eva with complete naturalness and professionalism.
+    """
     
     async def _parse_eva_response(self, response: str, 
                                  complaint_classification: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1430,15 +1422,29 @@ Respond as Eva with complete naturalness and professionalism.
     
     def _get_specialist_for_category(self, primary_category: str, customer_id: Optional[str] = None) -> Dict[str, str]:
         """
-        Get specialist assignment for category with consistent assignment
+        Get specialist assignment for category with consistent assignment - ENHANCED
         """
-        # Map category to specialist type
+        # Direct category mapping first
         if primary_category in self.specialist_names:
             specialists = self.specialist_names[primary_category]
         else:
-            specialists = self.specialist_names.get("general", [
-                {"name": "Chris Taylor", "title": "Customer Service Representative", "experience": "5 years"}
-            ])
+            # Smart fallback mapping for categories not in specialist_names
+            category_mapping = {
+                "bank_system_policy_failures": "poor_customer_service_communication",
+                "delays_fund_availability": "fraudulent_activities_unauthorized_transactions",
+                "deposit_related_issues": "account_freezes_holds_funds",
+                "atm_machine_issues": "online_banking_technical_security_issues",
+                "check_related_issues": "dispute_resolution_issues",
+                "overdraft_issues": "account_freezes_holds_funds",
+                "discrimination_unfair_practices": "poor_customer_service_communication",
+                "ambiguity_unclear_unclassified": "general",
+                "debt_collection_harassment": "poor_customer_service_communication",
+                "loan_issues_auto_personal_student": "mortgage_related_issues",
+                "insurance_claim_denials_delays": "dispute_resolution_issues"
+            }
+            
+            mapped_category = category_mapping.get(primary_category, "general")
+            specialists = self.specialist_names.get(mapped_category, self.specialist_names.get("general", []))
         
         # Use customer ID for consistent assignment if provided
         if customer_id and specialists:
@@ -1447,11 +1453,200 @@ Respond as Eva with complete naturalness and professionalism.
         elif specialists:
             return specialists[0]
         else:
+            # Ultimate fallback
             return {
                 "name": "Customer Service Team",
-                "title": "Customer Service Representative",
-                "experience": "Available to assist"
+                "title": "Customer Service Representative", 
+                "experience": "5+ years",
+                "specialty": "general banking inquiries",
+                "success_rate": "92%"
             }
+
+    def _get_realistic_timeline(self, complaint_category: str) -> Dict[str, str]:
+        """Get realistic timeline for complaint category with fallback"""
+        category_timeline = self.realistic_timelines.get(complaint_category)
+        if category_timeline:
+            return category_timeline
+        
+        # Fallback timelines based on category type
+        if "fraud" in complaint_category.lower() or "unauthorized" in complaint_category.lower():
+            return {
+                "investigation_start": "2 hours",
+                "provisional_credit_review": "24 hours",
+                "final_resolution": "3-5 business days"
+            }
+        elif "dispute" in complaint_category.lower():
+            return {
+                "investigation_start": "4 hours",
+                "merchant_contact": "1-2 business days",
+                "final_resolution": "5-7 business days"
+            }
+        elif "mortgage" in complaint_category.lower():
+            return {
+                "investigation_start": "2-4 hours",
+                "file_review": "1 business day",
+                "final_resolution": "3-5 business days"
+            }
+        elif "technical" in complaint_category.lower() or "online" in complaint_category.lower():
+            return {
+                "investigation_start": "1 hour",
+                "technical_review": "2-4 hours",
+                "final_resolution": "1-2 business days"
+            }
+        else:
+            # General fallback
+            return {
+                "investigation_start": "2-4 hours",
+                "review_process": "1-2 business days",
+                "final_resolution": "3-5 business days"
+            }
+
+    async def _generate_structured_resolution_response(self, customer_name: str, tracking_id: str, 
+                                                 followup_decision: Dict[str, Any], 
+                                                 triage_results: Dict[str, Any]) -> str:
+        """Generate structured response for resolution without follow-up questions - GENERALIZED"""
+        
+        # Get complaint category and specialist information
+        if "triage_analysis" in triage_results:
+            primary_category = triage_results["triage_analysis"]["primary_category"]
+            urgency_level = triage_results["triage_analysis"].get("urgency_level", "medium")
+            financial_impact = triage_results["triage_analysis"].get("financial_impact", False)
+        else:
+            primary_category = triage_results.get("primary_category", "general")
+            urgency_level = triage_results.get("urgency_level", "medium")
+            financial_impact = triage_results.get("financial_impact", False)
+        
+        # Get specialist using existing function
+        specialist = self._get_specialist_for_category(primary_category, customer_name)
+        
+        # Get category-friendly name
+        friendly_category = self._translate_category_for_customer(primary_category)
+        
+        # Get realistic timeline for this category
+        timeline = self._get_realistic_timeline(primary_category)
+        
+        # Build structured prompt using specialist information
+        prompt = f"""
+    Generate a structured banking resolution response for a {friendly_category.lower()} complaint.
+
+    CUSTOMER DETAILS:
+    - Customer: {customer_name}
+    - Tracking ID: {tracking_id}
+    - Complaint Type: {friendly_category}
+    - Urgency Level: {urgency_level}
+    - Financial Impact: {financial_impact}
+
+    ASSIGNED SPECIALIST:
+    - Name: {specialist["name"]}
+    - Title: {specialist["title"]}
+    - Experience: {specialist["experience"]}
+    - Specialty: {specialist["specialty"]}
+    - Success Rate: {specialist["success_rate"]}
+
+    INVESTIGATION STATUS: {followup_decision["reasoning"]}
+
+    Create a response with this EXACT structure:
+
+    Perfect, {customer_name}! I've immediately escalated your case to our customer relationship Manager.
+
+    **Current Status:** Your complaint has been routed and is now in the investigation queue with a tracking ID: {tracking_id}.
+
+    **What I'm doing right now:**
+    • Routing your {friendly_category.lower()} case to {specialist["name"]}, our {specialist["title"]}
+    • Setting up {urgency_level}-priority investigation with {specialist["experience"]} of expertise
+    • Establishing monitoring for your case with {specialist["success_rate"]} resolution track record
+
+    **What happens next:**
+    • {specialist["name"]} will personally review your case within {timeline.get("investigation_start", "2-4 hours")}
+    • Our {specialist["specialty"]} specialist will conduct thorough investigation of your concern
+    • You'll receive detailed findings and action plan within {timeline.get("final_resolution", "3-5 business days")}
+
+    **Your next actions:**
+    • Monitor your email for updates from {specialist["name"]}'s team
+    • Keep your contact information current for any follow-up calls
+    • Contact us immediately if your situation changes or worsens
+
+    Guidelines:
+    - Make it specific to the complaint type ({friendly_category})
+    - Use the actual specialist's name and credentials throughout
+    - Reference their specific expertise area
+    - Keep professional but warm tone
+    - Make customer feel they have a real expert working on their case
+    """
+        
+        return await self._call_anthropic(prompt)
+
+    async def _generate_structured_followup_response(self, customer_name: str, tracking_id: str,
+                                               followup_decision: Dict[str, Any], 
+                                               max_questions: int,
+                                               triage_results: Dict[str, Any]) -> str:
+        """Generate structured response for cases needing follow-up questions - GENERALIZED"""
+        
+        # Get complaint category and specialist information
+        if "triage_analysis" in triage_results:
+            primary_category = triage_results["triage_analysis"]["primary_category"]
+            urgency_level = triage_results["triage_analysis"].get("urgency_level", "medium")
+            financial_impact = triage_results["triage_analysis"].get("financial_impact", False)
+        else:
+            primary_category = triage_results.get("primary_category", "general")
+            urgency_level = triage_results.get("urgency_level", "medium")
+            financial_impact = triage_results.get("financial_impact", False)
+        
+        # Get specialist using existing function
+        specialist = self._get_specialist_for_category(primary_category, customer_name)
+        
+        # Get category-friendly name
+        friendly_category = self._translate_category_for_customer(primary_category)
+        
+        # Get realistic timeline for this category
+        timeline = self._get_realistic_timeline(primary_category)
+        
+        # Build structured prompt - UPDATED to end at the transition point
+        prompt = f"""
+    Generate a structured banking response for a {friendly_category.lower()} complaint that needs {max_questions} follow-up questions.
+
+    CUSTOMER DETAILS:
+    - Customer: {customer_name}
+    - Tracking ID: {tracking_id}
+    - Complaint Type: {friendly_category}
+    - Urgency Level: {urgency_level}
+    - Additional Questions Needed: {max_questions}
+
+    ASSIGNED SPECIALIST:
+    - Name: {specialist["name"]}
+    - Title: {specialist["title"]}
+    - Experience: {specialist["experience"]}
+    - Specialty: {specialist["specialty"]}
+    - Success Rate: {specialist["success_rate"]}
+
+    Create a response with this EXACT structure that ENDS at the transition point:
+
+    Perfect, {customer_name}! I've immediately escalated your case to our customer relationship Manager.
+
+    **Current Status:** Your complaint has been routed and is now in the investigation queue with a tracking ID: {tracking_id}.
+
+    **What I'm doing right now:**
+    • Routing your {friendly_category.lower()} case to {specialist["name"]}, our {specialist["title"]}
+    • Gathering additional details to brief {specialist["name"]} with complete case context
+    • Preparing comprehensive case file for {specialist["name"]} expert review
+
+    **What happens next:**
+    • {specialist["name"]} will review your complete case within {timeline.get("investigation_start", "2-4 hours")} after questions
+    • Our {specialist["specialty"]} expert will provide resolution within {timeline.get("final_resolution", "1-2 business days")}
+
+    To ensure the fastest resolution, I need to gather {max_questions} additional detail{"s" if max_questions > 1 else ""} for {specialist["name"]}'s investigation:
+
+    IMPORTANT: End the response exactly at this point. Do NOT include any questions.
+
+    Guidelines:
+    - Make it specific to the complaint type ({friendly_category})
+    - Use the actual specialist's name and credentials throughout
+    - Reference their specific expertise area
+    - Make customer feel they have a real expert working on their case
+    - END at the transition statement about gathering details
+    """
+        
+        return await self._call_anthropic(prompt)
 
     def _assign_specialist_name(self, category: str, complaint_id: str) -> Dict[str, str]:
         """Assign consistent realistic specialist name (Requirement 5)"""
@@ -1526,6 +1721,78 @@ Respond as Eva with complete naturalness and professionalism.
             "awaiting_customer_response": True
         }
     
+    async def _generate_structured_completion_response(self, customer_name: str, 
+                                                 conversation_state: Dict[str, Any]) -> str:
+        """Generate structured completion response after follow-up questions - GENERALIZED"""
+        
+        # Get gathered information
+        additional_info = conversation_state.get("gathered_additional_info", [])
+        triage_results = conversation_state.get("triage_results", {})
+        
+        # Get complaint category and specialist information
+        if "triage_analysis" in triage_results:
+            primary_category = triage_results["triage_analysis"]["primary_category"]
+        else:
+            primary_category = triage_results.get("primary_category", "general")
+        
+        # Get specialist using existing function
+        specialist = self._get_specialist_for_category(primary_category, customer_name)
+        
+        # Get category-friendly name
+        friendly_category = self._translate_category_for_customer(primary_category)
+        
+        # Get realistic timeline for this category
+        timeline = self._get_realistic_timeline(primary_category)
+        
+        # Create info summary
+        info_summary = f"Collected {len(additional_info)} detailed responses about the {friendly_category.lower()}"
+        
+        prompt = f"""
+    Generate a structured completion response after gathering additional information for a {friendly_category.lower()} complaint.
+
+    CUSTOMER DETAILS:
+    - Customer: {customer_name}
+    - Complaint Type: {friendly_category}
+    - Additional Information: {info_summary}
+
+    ASSIGNED SPECIALIST:
+    - Name: {specialist["name"]}
+    - Title: {specialist["title"]}
+    - Experience: {specialist["experience"]}
+    - Specialty: {specialist["specialty"]}
+    - Success Rate: {specialist["success_rate"]}
+
+    Create a response with this EXACT structure:
+
+    Thank you, {customer_name}. I have all the information needed for {specialist["name"]}'s investigation.
+
+    **What I'm doing right now:**
+    • Updating your case file with the additional details for {specialist["name"]}
+    • Notifying {specialist["name"]}, our {specialist["title"]}, about your complete case
+    • Setting priority review with {specialist["experience"]} of {specialist["specialty"]} expertise
+
+    **What happens next:**
+    • {specialist["name"]} will review your enhanced case file within {timeline.get("investigation_start", "2-4 hours")}
+    • Our {specialist["specialty"]} expert will conduct comprehensive investigation
+    • You'll receive {specialist["name"]}'s findings and action plan within {timeline.get("final_resolution", "3-5 business days")}
+
+    **Your next actions:**
+    • Monitor your email for updates from {specialist["name"]}'s team
+    • Keep documentation handy in case {specialist["name"]} needs clarification
+    • Contact us immediately if your situation changes
+
+    Is there anything else I can help you with regarding this case or any other banking needs?
+
+    Guidelines:
+    - Make it specific to the complaint type ({friendly_category})
+    - Use the actual specialist's name and credentials throughout
+    - Reference their specific expertise area
+    - Show how the additional information helps the specialist
+    - Make customer feel confident in the expert handling their case
+    """
+        
+        return await self._call_anthropic(prompt)
+
     # ========================= ACTION & FLOW METHODS ====================
 
     async def _request_clarification(self, context: ConversationContext, conversation_id: str) -> Dict[str, Any]:
@@ -1573,218 +1840,7 @@ Respond as Eva with complete naturalness and professionalism.
             "requires_clarification": True
         }
     
-    async def _generate_realistic_action_response(self, action_type: str, 
-                                                triage_results: Dict[str, Any],
-                                                context: ConversationContext) -> str:
-        """
-        NEW: Generate realistic action response using banking policy constraints
-        """
-        # Extract complaint details
-        if "triage_analysis" in triage_results:
-            analysis = triage_results["triage_analysis"]
-            complaint_type = analysis["primary_category"]
-            urgency_level = analysis["urgency_level"]
-            financial_impact = analysis.get("financial_impact", False)
-            amount = analysis.get("estimated_financial_amount", "")
-        else:
-            complaint_type = triage_results.get("primary_category", "general_inquiry")
-            urgency_level = triage_results.get("priority", "medium")
-            financial_impact = triage_results.get("financial_impact", False)
-            amount = triage_results.get("estimated_financial_amount", "")
-        
-        # Get realistic timelines for this complaint type
-        timelines = self._get_realistic_timeline(complaint_type)
-        
-        # Build response prompt with banking constraints
-        prompt = f"""
-        Generate realistic banking response for "{action_type}" stage.
-        
-        Context:
-        - Customer: {context.customer_name}
-        - Complaint type: {complaint_type}
-        - Urgency: {urgency_level}
-        - Financial impact: {financial_impact}
-        - Amount: {amount}
-        - Realistic timelines: {timelines}
-        
-        BANKING CONSTRAINTS (CRITICAL):
-        - NO instant refunds or money promises
-        - Investigation required before any credits
-        - Show process urgency, not money urgency
-        - Use realistic timelines from provided data
-        - Provisional credit is conditional, not guaranteed
-        - Mention specific specialist names from our team
-        
-        Generate empathetic but realistic response for {action_type}.
-        """
-        
-        return await self._call_anthropic(prompt)
-    
-    async def _regenerate_realistic_response(self, action_type: str, triage_results: Dict[str, Any],
-                                       context: ConversationContext, violations: List[str]) -> str:
-        """
-        NEW: Regenerate response with stricter banking constraints
-        """
-        # Get realistic timelines
-        if "triage_analysis" in triage_results:
-            complaint_type = triage_results["triage_analysis"]["primary_category"]
-        else:
-            complaint_type = triage_results.get("primary_category", "general_inquiry")
-        
-        timelines = self._get_realistic_timeline(complaint_type)
-        
-        prompt = f"""
-        Regenerate realistic banking response for "{action_type}".
-        
-        VIOLATIONS TO AVOID: {violations}
-        
-        Context: Customer {context.customer_name}
-        Realistic timelines: {timelines}
-        
-        STRICT BANKING CONSTRAINTS:
-        - NEVER promise instant money, refunds, or credits
-        - Always mention investigation requirement
-        - Use phrases like "review for provisional credit eligibility"
-        - Show urgency in PROCESS, not MONEY
-        - Be empathetic but honest about banking realities
-        
-        Generate response that shows immediate action on investigation/security but realistic expectations about money.
-        """
-        
-        return await self._call_anthropic(prompt)
-        
-    async def _generate_action_step_2(self, conversation_id: str) -> Dict[str, Any]:
-        """NEW: Generate second action message"""
-        conversation_state = self.conversation_states[conversation_id]
-        triage_results = conversation_state["triage_results"]
-        context = self.conversation_contexts[conversation_id]
-        
-        action_2 = await self._generate_realistic_action_response(
-            "what_happens_next", triage_results, context
-        )
-        
-        conversation_state.update({
-            "action_step": 2,
-            "next_action_time": datetime.now() + timedelta(seconds=10)
-        })
-        
-        return {
-            "response": action_2,
-            "conversation_id": conversation_id,
-            "stage": "action_sequence_2",
-            "next_message_in_seconds": 10
-        }
-    
-    async def _generate_action_step_3(self, conversation_id: str) -> Dict[str, Any]:
-        """NEW: Generate third action message"""
-        conversation_state = self.conversation_states[conversation_id]
-        triage_results = conversation_state["triage_results"]
-        context = self.conversation_contexts[conversation_id]
-        
-        action_3 = await self._generate_realistic_action_response(
-            "your_next_actions", triage_results, context
-        )
-        
-        conversation_state.update({
-            "action_step": 3,
-            "stage": "action_complete"
-        })
-        
-        return {
-            "response": action_3,
-            "conversation_id": conversation_id,
-            "stage": "action_sequence_complete",
-            "ready_for_questions": True
-        }
-    
-    async def _complete_action_sequence(self, conversation_id: str) -> Dict[str, Any]:
-        """NEW: Complete action sequence"""
-        context = self.conversation_contexts[conversation_id]
-        customer_name = context.customer_name
-        
-        completion_response = f"""
-        {customer_name}, I've outlined everything we're doing to resolve your situation. 
-        
-        Your case is now in the hands of our specialist team, and you'll be hearing from them soon.
-        
-        Is there anything else about this situation that you'd like me to address or any other questions I can help you with right now?
-        """
-        
-        # Reset conversation state for normal chat
-        self.conversation_states[conversation_id] = {"stage": "normal_chat"}
-        
-        return {
-            "response": completion_response,
-            "conversation_id": conversation_id,
-            "stage": "action_sequence_complete",
-            "ready_for_normal_chat": True
-        }
-    
-    async def _continue_action_sequence(self, conversation_id: str) -> Dict[str, Any]:
-        """
-        NEW: Continue with next part of action sequence
-        """
-        conversation_state = self.conversation_states[conversation_id]
-        
-        # Check if it's time for next message
-        if datetime.now() < conversation_state.get("next_action_time", datetime.now()):
-            return {
-                "response": "Processing...",
-                "conversation_id": conversation_id,
-                "stage": "action_sequence_processing",
-                "retry_in_seconds": 2
-            }
-        
-        action_step = conversation_state["action_step"]
-        
-        if action_step == 1:
-            # Generate "What happens next"
-            return await self._generate_action_step_2(conversation_id)
-        elif action_step == 2:
-            # Generate "Your next actions"
-            return await self._generate_action_step_3(conversation_id)
-        else:
-            # Action sequence complete
-            return await self._complete_action_sequence(conversation_id)
-    
-    async def _initiate_realistic_action_sequence(self, conversation_id: str) -> Dict[str, Any]:
-        """
-        NEW: Initiate realistic action sequence with banking policy compliance
-        """
-        conversation_state = self.conversation_states[conversation_id]
-        triage_results = conversation_state["triage_results"]
-        context = self.conversation_contexts[conversation_id]
-        
-        # Generate first action response with banking policy compliance
-        first_action = await self._generate_realistic_action_response(
-            "what_doing_now", triage_results, context
-        )
-        
-        # Validate response for realistic banking practices
-        validation = self._validate_response_promises(first_action)
-        
-        if not validation["is_realistic"]:
-            print(f"⚠️ Unrealistic response detected, regenerating...")
-            # Regenerate with stricter constraints
-            first_action = await self._regenerate_realistic_response(
-                "what_doing_now", triage_results, context, validation["violations"]
-            )
-        
-        # Update conversation state
-        self.conversation_states[conversation_id].update({
-            "stage": "action_sequence",
-            "action_step": 1,
-            "next_action_time": datetime.now() + timedelta(seconds=10)
-        })
-        
-        return {
-            "response": first_action,
-            "conversation_id": conversation_id,
-            "stage": "action_sequence_1",
-            "next_message_in_seconds": 10,
-            "banking_policy_validated": True
-        }
-    
+   
     # ========================= FLOW CONTROL METHODS ===========================
     async def _initiate_follow_up_questions(self, context: ConversationContext, 
                                           conversation_id: str) -> Dict[str, Any]:
@@ -1822,37 +1878,6 @@ Respond as Eva with complete naturalness and professionalism.
             "question_number": 1
         }
     
-    async def _handle_follow_up_questions(self, message: str, context: ConversationContext, 
-                                        conversation_id: str) -> Dict[str, Any]:
-        """
-        NEW: Handle follow-up question responses
-        """
-        conversation_state = self.conversation_states[conversation_id]
-        
-        # Store customer response
-        conversation_state["gathered_info"].append({
-            "question_number": conversation_state["questions_asked"],
-            "response": message,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-        # Check if more questions needed
-        if (conversation_state["questions_asked"] < conversation_state["max_questions"] and 
-            not self._customer_wants_to_proceed(message)):
-            
-            # Generate next question
-            next_question = await self._generate_next_followup_question(conversation_state)
-            conversation_state["questions_asked"] += 1
-            
-            return {
-                "response": next_question,
-                "conversation_id": conversation_id,
-                "stage": "follow_up_questions",
-                "question_number": conversation_state["questions_asked"]
-            }
-        else:
-            # Move to action sequence
-            return await self._initiate_realistic_action_sequence(conversation_id)
     
     async def _handle_triage_confirmation(self, message: str, context: ConversationContext, 
                                         conversation_id: str) -> Dict[str, Any]:
@@ -2182,21 +2207,7 @@ Respond as Eva with complete naturalness and professionalism.
         
         return response
     
-    async def _generate_dynamic_followup_questions(self, complaint_classification: Dict, customer_context: Dict):
-        # AI-generated questions based on complaint type and customer situation
-        prompt = f"""
-        Based on this fraud complaint classification:
-        - Type: {complaint_classification['primary_category']}
-        - Customer emotion: {complaint_classification['emotional_state']}
-        - Amount: $2,500 (rent money - high urgency)
-        
-        Generate 1-2 specific follow-up questions to better understand:
-        1. When/where the card was last used legitimately
-        2. Any suspicious communications received
-        3. Other potentially affected accounts
-        
-        Keep it conversational and empathetic, not interrogative.
-        """   
+     
 
     async def _generate_followup_response(self, customer_feedback: str, 
                                         feedback_result: Dict[str, Any], 
@@ -2286,16 +2297,10 @@ I want to make sure our resolution plan addresses exactly what matters most to y
             # Requirement 3: Emotional Intelligence
             emotional_analysis = await self._analyze_customer_emotion(message, context)
             
-            # Check if this is a complaint that needs classification
-            complaint_classification = None
-            if await self._is_complaint(message):
-                complaint_classification = await self._classify_complaint_with_learning(
-                    message, customer_context
-                )
             
             # Generate Eva's response
             eva_response = await self._generate_eva_response(
-                message, context, emotional_analysis, complaint_classification
+                message, context, emotional_analysis, None
             )
             
             # Add Eva's response to context
@@ -2314,9 +2319,7 @@ I want to make sure our resolution plan addresses exactly what matters most to y
             return {
                 "response": eva_response["content"],
                 "conversation_id": conversation_id,
-                "emotional_state": emotional_analysis["primary_emotion"],
-                "classification_pending": complaint_classification,
-                "requires_confirmation": complaint_classification is not None
+                "emotional_state": emotional_analysis["primary_emotion"]
             }
             
         except Exception as e:
@@ -2463,16 +2466,229 @@ I want to make sure our resolution plan addresses exactly what matters most to y
         else:
             return "Is there anything else about your situation that you think would be important for us to know?"
 
+    async def _should_ask_followup_questions(self, triage_results: Dict[str, Any], 
+                                       complaint_text: str) -> Dict[str, Any]:
+        """
+        Intelligent decision: Should we ask follow-up questions based on complaint completeness?
+        Uses real banking investigator methodology
+        """
+        try:
+            # Extract triage analysis
+            if "triage_analysis" in triage_results:
+                analysis = triage_results["triage_analysis"]
+                primary_category = analysis["primary_category"]
+                confidence = analysis.get("confidence_scores", {}).get(primary_category, 0.8)
+                financial_impact = analysis.get("financial_impact", False)
+                urgency_level = analysis.get("urgency_level", "medium")
+                estimated_amount = analysis.get("estimated_financial_amount", "")
+            else:
+                primary_category = triage_results.get("primary_category", "general")
+                confidence = triage_results.get("confidence_score", 0.8)
+                financial_impact = triage_results.get("financial_impact", False)
+                urgency_level = triage_results.get("priority", "medium")
+                estimated_amount = ""
+
+            # Build sophisticated banking investigator prompt
+            prompt = f"""
+    You are Eva Martinez, a Senior Banking Complaint Investigator with 12 years of experience at Swiss Bank. You've handled over 3,000 complaint cases and trained junior investigators on preliminary assessment protocols.
+
+    Your expertise spans:
+    - Fraud investigation methodology and evidence collection
+    - Regulatory compliance (CFPB, FDCPA, Reg E, Reg Z)
+    - Risk assessment and customer relationship management
+    - Investigation workflow optimization and case prioritization
+
+    CURRENT CASE ASSESSMENT:
+    =======================
+    Customer Complaint: "{complaint_text}"
+    Preliminary Classification: {primary_category}
+    Classification Confidence: {confidence:.0%}
+    Urgency Level: {urgency_level}
+    Financial Impact: ${estimated_amount} (Financial impact: {financial_impact})
+
+    INVESTIGATOR DECISION FRAMEWORK:
+    ===============================
+
+    As an experienced investigator, analyze this complaint using your standard preliminary assessment checklist:
+
+    **EVIDENCE SUFFICIENCY ANALYSIS:**
+    1. **Transaction Details**: Do we have specific amounts, dates, account numbers, transaction IDs?
+    2. **Timeline Clarity**: Is the sequence of events clear and verifiable?
+    3. **Documentation Status**: Are supporting documents mentioned or available?
+    4. **Third Party Information**: Are merchant names, reference numbers, or other parties identified?
+
+    **REGULATORY COMPLIANCE ASSESSMENT:**
+    1. **Time Sensitivity**: Does this require immediate action under banking regulations?
+    2. **Liability Determination**: Can we assess bank vs. customer liability with current info?
+    3. **Disclosure Requirements**: Do we have enough to meet regulatory disclosure timelines?
+
+    **INVESTIGATION EFFICIENCY ANALYSIS:**
+    1. **Immediate Resolution Potential**: Can this be resolved without additional customer contact?
+    2. **Specialist Handoff Quality**: Does our back-office team have what they need to start immediately?
+    3. **Customer Communication Strategy**: Will additional questions improve resolution speed or just delay?
+
+    **RISK AND RELATIONSHIP FACTORS:**
+    1. **Customer Profile**: Premium customer, complaint history, relationship value
+    2. **Reputation Risk**: Is this complaint type trending or socially sensitive?
+    3. **Escalation Probability**: Will insufficient initial information lead to escalation?
+
+    Assess if this complaint contains sufficient actionable information for immediate investigation:
+
+    **CATEGORY-SPECIFIC COMPLETENESS CRITERIA:**
+
+    **For MORTGAGE/LOAN Complaints:**
+    ✓ REQUIRED: Specific payment amounts (old vs new amounts)
+    ✓ REQUIRED: Timeline/dates of the issue occurrence
+    ✓ REQUIRED: Clear description of the discrepancy/problem
+    ✓ HELPFUL: Account history context
+    ✓ HELPFUL: Any communications received or lack thereof
+
+    **For FRAUD/UNAUTHORIZED TRANSACTIONS:**
+    ✓ REQUIRED: Transaction amounts and dates
+    ✓ REQUIRED: Account/card details affected
+    ✓ REQUIRED: Timeline of discovery
+    ✓ CRITICAL: Customer's last authorized usage
+    ✓ CRITICAL: Current card possession status
+
+    **For DISPUTE RESOLUTION:**
+    ✓ REQUIRED: Transaction details and merchant information
+    ✓ REQUIRED: What customer expected vs what happened
+    ✓ HELPFUL: Prior merchant contact attempts
+    ✓ HELPFUL: Supporting documentation
+
+    **For TECHNICAL ISSUES:**
+    ✓ REQUIRED: Clear error description
+    ✓ REQUIRED: When issue started occurring
+    ✓ HELPFUL: Device/browser information
+    ✓ HELPFUL: Steps already attempted
+
+    **CURRENT COMPLAINT COMPLETENESS ANALYSIS:**
+    ==========================================
+
+    For THIS specific complaint about "{primary_category}":
+
+    **Information Provided Assessment:**
+    - Are specific amounts/values mentioned? (Check for dollar amounts, percentages, dates)
+    - Is the timeline clearly established? (Check for "when" information)
+    - Is the core issue clearly described? (Check for "what happened" clarity)
+    - Can investigation start immediately with this information?
+
+    **Investigation Readiness Test:**
+    - Can our specialist team begin immediate account review with provided info?
+    - Are there obvious gaps that would require customer callback within 24 hours?
+    - Would additional questions significantly expedite resolution?
+    - Is this complaint actionable as-is for back-office investigation?
+
+    **Quality Control Standards:**
+    - SUFFICIENT = Investigation can proceed immediately with high probability of resolution
+    - NEEDS QUESTIONS = Critical information gaps that will cause investigation delays
+    - BORDERLINE = Additional context would be helpful but not essential
+
+    Based on your 12 years of experience and successful case resolution methodology, make your recommendation:
+
+    RESPONSE FORMAT (JSON):
+    {{
+        "sufficient_information": true_or_false,
+        "investigator_reasoning": "Professional assessment with specific banking context",
+        "missing_critical_elements": ["specific_missing_items"],
+        "recommended_questions": 0_to_2,
+        "investigation_readiness_score": 0.XX,
+        "regulatory_urgency": "immediate|standard|routine",
+        "specialist_handoff_quality": "excellent|good|needs_improvement",
+        "customer_impact_if_delayed": "low|medium|high",
+        "banker_recommendation": "proceed_immediately|gather_essentials|full_investigation_prep"
+    }}
+
+    **DECISION CRITERIA GUIDELINES:**
+    - **Fraud/Unauthorized Transactions**: Almost always need transaction specifics and timeline
+    - **Mortgage/Loan Issues**: Often sufficient if payment amounts and dates provided
+    - **Technical Issues**: Usually sufficient if error descriptions are clear
+    - **Dispute Cases**: Need merchant interaction details and transaction context
+    - **Fee/Billing**: Require specific charge details and account activity context
+
+    **EFFICIENCY PRIORITY:** Minimize customer friction while ensuring investigation quality. If complaint provides actionable information for immediate specialist review, proceed without additional questions.
+
+    **REGULATORY PRIORITY:** Ensure compliance timelines can be met with available information.
+
+    Think like a seasoned banking professional who balances thoroughness with efficiency.
+    """
+
+            response = await self._call_anthropic(prompt)
+            
+            # Parse response
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                decision = json.loads(json_match.group())
+                
+                # SIMPLE: Always cap at 2 questions maximum
+                recommended_questions = min(decision.get("recommended_questions", 1), 2)
+                
+                # Map to expected format
+                decision["sufficient_information"] = decision.get("sufficient_information", False)
+                decision["suggested_questions_count"] = recommended_questions  # Always 0, 1, or 2
+                decision["reasoning"] = decision.get("investigator_reasoning", "Professional assessment completed")
+                decision["completeness_score"] = decision.get("investigation_readiness_score", 0.5)
+            
+                return decision
+            else:
+                # Professional fallback decision
+                return self._professional_fallback_decision(primary_category, confidence, financial_impact)
+                
+        except Exception as e:
+            print(f"❌ Error in professional complaint assessment: {e}")
+            return self._professional_fallback_decision("general", 0.5, False)
+
+    def _professional_fallback_decision(self, category: str, confidence: float, financial_impact: bool) -> Dict[str, Any]:
+        """
+        Professional fallback decision based on banking best practices
+        """
+        # Banking industry standard: High-risk categories need more info
+        high_info_categories = [
+            "fraudulent_activities_unauthorized_transactions",
+            "dispute_resolution_issues"
+        ]
+        
+        # For mortgage issues, usually sufficient if amounts and timeline provided
+        mortgage_categories = ["mortgage_related_issues"]
+        
+        if category in mortgage_categories:
+            # Mortgage complaints typically have sufficient info if they mention amounts/timeline
+            needs_questions = confidence < 0.7
+            question_count = 1 if needs_questions else 0
+        elif category in high_info_categories:
+            # Fraud/disputes typically need more details
+            needs_questions = True
+            question_count = 2
+        else:
+            # Other categories based on confidence
+            needs_questions = confidence < 0.8
+            question_count = 1 if needs_questions else 0
+        
+        return {
+            "sufficient_information": not needs_questions,
+            "investigator_reasoning": f"Standard banking protocol for {category} complaints with {confidence:.0%} confidence",
+            "missing_critical_elements": ["Additional investigation details needed"] if needs_questions else [],
+            "recommended_questions": question_count,
+            "suggested_questions_count": question_count,
+            "investigation_readiness_score": confidence,
+            "regulatory_urgency": "standard",
+            "specialist_handoff_quality": "good" if not needs_questions else "needs_improvement",
+            "reasoning": f"Professional fallback assessment - {'Investigation ready' if not needs_questions else 'Additional details recommended'}",
+            "completeness_score": confidence,
+            "banker_recommendation": "proceed_immediately" if not needs_questions else "gather_essentials",
+            "completeness_assessment": "sufficient" if not needs_questions else "insufficient",
+            "fallback_decision": True
+        }
+        
     async def _handle_follow_up_questions_enhanced(self, message: str, context: ConversationContext, 
-                                     conversation_id: str) -> Dict[str, Any]:
-        """
-        FIXED: Handle follow-up questions with generalized question generation
-        """
+                                 conversation_id: str) -> Dict[str, Any]:
+    
         conversation_state = self.conversation_states[conversation_id]
         customer_name = context.customer_name
         
+        max_questions = conversation_state.get("max_questions", 2)
         current_questions_asked = conversation_state.get("questions_asked", 0)
-        max_questions = conversation_state.get("max_questions", 3)
+    
         
         # Store customer response
         if "gathered_additional_info" not in conversation_state:
@@ -2494,15 +2710,10 @@ I want to make sure our resolution plan addresses exactly what matters most to y
         customer_done = any(indicator in message.lower() for indicator in completion_indicators)
         
         if customer_done or current_questions_asked >= max_questions:
-            # Complete follow-up phase
-            completion_message = f"""Thank you, {customer_name}. I have all the information needed for our investigation team.
-
-    **What happens next:**
-    - Our specialist will review your case within 2 hours
-    - You'll receive a call with preliminary findings  
-    - We'll keep you updated throughout the investigation process
-
-    Is there anything else I can help you with regarding this case or any other banking needs?"""
+            # Complete follow-up phase WITH STRUCTURED SUMMARY
+            completion_message = await self._generate_structured_completion_response(
+                customer_name, conversation_state
+            )
 
             # Update state to normal chat
             self.conversation_states[conversation_id].update({
@@ -2552,10 +2763,10 @@ I want to make sure our resolution plan addresses exactly what matters most to y
             return "Can you provide more details that would help our investigation team resolve this issue effectively?"
         
     async def _generate_dynamic_followup_question(self, question_number: int, 
-                                            conversation_state: Dict[str, Any],
-                                            previous_responses: List[Dict]) -> str:
+                                        conversation_state: Dict[str, Any],
+                                        previous_responses: List[Dict]) -> str:
         """
-        GENERALIZED: Generate follow-up questions using AI based on context, not hardcoded categories
+        UPDATED: Generate follow-up questions using AI based on context - CLEANER OUTPUT
         """
         try:
             # Get complaint context
@@ -2583,13 +2794,16 @@ I want to make sure our resolution plan addresses exactly what matters most to y
                 emotional_state = "neutral"
                 financial_impact = False
             
-            # ✅ GENERALIZED AI PROMPT
+            # Get category-friendly name
+            friendly_category = self._translate_category_for_customer(primary_category)
+            
+            # ✅ UPDATED PROMPT FOR CLEANER QUESTIONS
             prompt = f"""
-    Generate a natural follow-up question for a banking complaint investigation.
+    Generate a clean, direct follow-up question for a {friendly_category.lower()} complaint investigation.
 
     CONTEXT:
     - Original complaint: {complaint_text[:200]}...
-    - Complaint type: {primary_category}
+    - Complaint type: {friendly_category}
     - Urgency: {urgency_level}
     - Customer emotional state: {emotional_state}
     - Financial impact: {financial_impact}
@@ -2598,15 +2812,18 @@ I want to make sure our resolution plan addresses exactly what matters most to y
     PREVIOUS CUSTOMER RESPONSES:
     {previous_context if previous_context else "None yet"}
 
-    GUIDELINES:
-    1. Ask questions that help resolve THIS SPECIFIC complaint
-    2. Be empathetic, especially if customer is {emotional_state}
+    REQUIREMENTS:
+    1. Generate ONE specific, direct question that helps resolve THIS complaint type
+    2. Be empathetic if customer is {emotional_state}
     3. Focus on gathering actionable information for investigation
     4. Don't repeat information already gathered
     5. Keep it conversational, not interrogative
     6. Question should be 1-2 sentences maximum
+    7. DO NOT include any explanatory context, specialist names, or methodology
+    8. DO NOT explain why the question is being asked
+    9. Just ask the direct question needed for investigation
 
-    Generate ONE specific, helpful follow-up question that would assist in resolving this customer's situation:
+    Generate ONLY the clean question without any additional context or explanation:
     """
             
             # Call AI to generate question
@@ -2615,14 +2832,17 @@ I want to make sure our resolution plan addresses exactly what matters most to y
             # Clean up the response
             question = response.strip()
             
-            # Remove any quotes or extra formatting
+            # Remove any remaining context or explanations
+            question = self._clean_followup_question(question)
+            
+            # Remove quotes or extra formatting
             question = question.replace('"', '').replace("'", "").strip()
             
             # Ensure it ends with a question mark
             if not question.endswith('?'):
                 question += '?'
             
-            print(f"🤖 Generated dynamic question {question_number}: {question}")
+            print(f"🤖 Generated clean question {question_number}: {question}")
             
             return question
             
@@ -2630,6 +2850,7 @@ I want to make sure our resolution plan addresses exactly what matters most to y
             print(f"❌ Error generating dynamic question: {e}")
             # Fallback to generic question
             return self._get_generic_fallback_question(question_number)
+
 
     def _get_generic_fallback_question(self, question_number: int) -> str:
         """
@@ -2778,97 +2999,71 @@ I want to make sure our resolution plan addresses exactly what matters most to y
                 
             except Exception as e:
                 print(f"⚠️ Failed to pass additional context to triage: {e}")
-
-    async def _initiate_sequential_action_messages(self, conversation_id: str) -> Dict[str, Any]:
+        
+    async def _ask_first_followup_question(self, conversation_id: str, context: ConversationContext) -> Dict[str, Any]:
         """
-        Start sequential action messages after follow-up is complete
+        Ask the first follow-up question cleanly - GENERALIZED
         """
         conversation_state = self.conversation_states[conversation_id]
-        context = self.conversation_contexts[conversation_id]
-        triage_results = conversation_state["triage_results"]
+        primary_category = conversation_state["current_question_category"]
+        emotional_state = conversation_state["emotional_state"]
+        customer_name = context.customer_name
         
-        # Generate first action message using the realistic response generator
-        first_action = await self._generate_realistic_action_response(
-            "what_doing_now", 
-            triage_results, 
-            context
+        # Generate first question using existing dynamic method
+        first_question = await self._generate_dynamic_followup_question(
+            1, 
+            conversation_state, 
+            []  # No previous responses for first question
         )
         
-        # Update state for sequential action messages
+        # Clean the question to remove any extra context
+        cleaned_question = self._clean_followup_question(first_question)
+        
+        # Update state to active questioning
         self.conversation_states[conversation_id].update({
-            "stage": "action_sequence",
-            "action_step": 1,
-            "next_action_time": datetime.now() + timedelta(seconds=10)
+            "stage": "follow_up_questions_active",
+            "questions_asked": 1
         })
         
         return {
-            "response": first_action,
+            "response": cleaned_question,
             "conversation_id": conversation_id,
-            "stage": "action_sequence_1",
-            "next_message_in_seconds": 10,
-            "sequential_messages_active": True
+            "stage": "follow_up_questions_active",
+            "question_number": 1
         }
 
-    async def _continue_action_sequence_with_timing(self, conversation_id: str) -> Dict[str, Any]:
-        """
-        UPDATED: Continue action sequence with voice-aware timing
-        """
-        conversation_state = self.conversation_states[conversation_id]
+    def _clean_followup_question(self, question: str) -> str:
+        """Clean follow-up question to remove extra context - GENERALIZED"""
         
-        # Check if it's time for next message (10-second delay for voice-disabled users)
-        if datetime.now() < conversation_state.get("next_action_time", datetime.now()):
-            return {
-                "response": "Processing next steps...",
-                "conversation_id": conversation_id,
-                "stage": "action_sequence_processing",
-                "retry_in_seconds": 2
-            }
+        # Remove common AI-generated context phrases
+        context_phrases_to_remove = [
+            r"Jennifer Williams needs this.*?(?=\?|\.|$)",
+            r"This helps [A-Za-z\s]+ trace.*?(?=\?|\.|$)",
+            r"These details will allow.*?(?=\?|\.|$)",
+            r"[A-Za-z\s]+ needs this timeline.*?(?=\?|\.|$)",
+            r"This information helps.*?(?=\?|\.|$)",
+            r"Using [A-Za-z\s]+ methodology.*?(?=\?|\.|$)",
+            r"From [A-Za-z\s]+ experience.*?(?=\?|\.|$)",
+            r"This allows [A-Za-z\s]+ to.*?(?=\?|\.|$)"
+        ]
         
-        action_step = conversation_state["action_step"]
-        context = self.conversation_contexts[conversation_id]
-        triage_results = conversation_state["triage_results"]
+        cleaned_question = question
         
-        if action_step == 1:
-            # Generate "What happens next"
-            action_2 = await self._generate_realistic_action_response(
-                "what_happens_next", triage_results, context
-            )
-            
-            conversation_state.update({
-                "action_step": 2,
-                "next_action_time": datetime.now() + timedelta(seconds=10)
-            })
-            
-            return {
-                "response": action_2,
-                "conversation_id": conversation_id,
-                "stage": "action_sequence_2",
-                "next_message_in_seconds": 10
-            }
-            
-        elif action_step == 2:
-            # Generate "Your next actions"
-            action_3 = await self._generate_realistic_action_response(
-                "your_next_actions", triage_results, context
-            )
-            
-            conversation_state.update({
-                "action_step": 3,
-                "stage": "action_complete"
-            })
-            
-            return {
-                "response": action_3,
-                "conversation_id": conversation_id,
-                "stage": "action_sequence_complete",
-                "ready_for_normal_chat": True
-            }
-        else:
-            # Sequence complete
-            return await self._complete_action_sequence(conversation_id)
+        # Remove context phrases
+        for pattern in context_phrases_to_remove:
+            cleaned_question = re.sub(pattern, '', cleaned_question, flags=re.IGNORECASE)
+        
+        # Clean up extra spaces and formatting
+        cleaned_question = re.sub(r'\s+', ' ', cleaned_question).strip()
+        
+        # Ensure it ends with a question mark
+        if cleaned_question and not cleaned_question.endswith('?'):
+            cleaned_question += '?'
+        
+        return cleaned_question
 
     async def eva_chat_response_with_natural_flow(self, message: str, customer_context: Dict[str, Any], 
-                                         conversation_id: str) -> Dict[str, Any]:
+                                     conversation_id: str) -> Dict[str, Any]:
         """
         UPDATED: Enhanced Eva chat with proper triage confirmation flow - no duplicates
         Uses hardcoded categories/constraints, database timelines
@@ -2916,23 +3111,29 @@ I want to make sure our resolution plan addresses exactly what matters most to y
             # Triage confirmation stage
             elif conversation_state["stage"] == "triage_confirmation_pending":
                 return await self._handle_triage_confirmation_response(message, context, conversation_id)
-           
+
+            # UPDATED: Handle special trigger for first question
+            elif conversation_state["stage"] == "ready_for_first_question":
+                if message.strip().lower() == "continue_first_question":
+                    print("🎯 SPECIAL TRIGGER - STARTING FIRST FOLLOW-UP QUESTION")
+                    return await self._ask_first_followup_question(conversation_id, context)
+                else:
+                    print("🎯 REGULAR MESSAGE IN READY STATE - STARTING FIRST FOLLOW-UP QUESTION")
+                    return await self._ask_first_followup_question(conversation_id, context)
+
             # Existing follow-up questions handling
             elif conversation_state["stage"] == "follow_up_questions_active":
                 print("🎯 HANDLING FOLLOW-UP QUESTION RESPONSE")
                 return await self._handle_follow_up_questions_enhanced(message, context, conversation_id)
-    
-            # Check if follow-up is complete
-            elif conversation_state["stage"] == "follow_up_complete":
-                print("🎯 FOLLOW-UP COMPLETE - STARTING ACTION SEQUENCE")
-                return await self._initiate_sequential_action_messages(conversation_id)
-            
-            elif conversation_state["stage"] == "action_sequence":
-                return await self._continue_action_sequence(conversation_id)
-            
+
             else:
                 print("🎯 HANDLING AS NORMAL CONVERSATION")
-                return await self.eva_chat_response(message, customer_context, conversation_id)
+                # FIXED: Remove automatic classification for normal conversations
+                eva_response = await self.eva_chat_response(message, customer_context, conversation_id)
+                # Remove requires_confirmation for normal chat
+                eva_response.pop("requires_confirmation", None)
+                eva_response.pop("classification_pending", None)
+                return eva_response
                 
         except Exception as e:
             print(f"❌ Error in enhanced Eva flow: {e}")
@@ -3160,65 +3361,84 @@ I want to make sure our resolution plan addresses exactly what matters most to y
         return department_mapping.get(category, "general_customer_service")
 
     async def _handle_triage_confirmation_response(self, message: str, context: ConversationContext, 
-                                        conversation_id: str) -> Dict[str, Any]:
+                                    conversation_id: str) -> Dict[str, Any]:
         """
-        FIXED: Handle customer's response to triage confirmation - clean separation
+        Clean separation - either complete response OR start questions, never both
         """
         confirmation_analysis = self._analyze_customer_confirmation(message)
         customer_name = context.customer_name
         
         if confirmation_analysis["confirmed"]:
-            # Customer confirms - pass to orchestrator and generate clean status response
+            # Customer confirms - pass to orchestrator
             await self._pass_confirmed_triage_to_orchestrator(conversation_id)
             
             # Generate tracking ID
             tracking_id = f"TRK_{conversation_id[:8]}_{datetime.now().strftime('%Y%m%d%H%M')}"
             
-            # Get triage details for first question
+            # Intelligent decision on follow-up questions
             conversation_state = self.conversation_states[conversation_id]
             triage_results = conversation_state["triage_results"]
-
-            if "triage_analysis" in triage_results:
-                analysis = triage_results["triage_analysis"]
-                primary_category = analysis["primary_category"]
-                emotional_state = analysis.get("emotional_state", "neutral")
-            else:
-                primary_category = triage_results.get("primary_category", "general")
-                emotional_state = triage_results.get("emotional_state", "neutral")
-        
-            # Generate first follow-up question
-            first_question = self._get_first_question_by_category(primary_category, emotional_state)
-        
-            # ✅ FIX: Combine status + first question in single response
-            combined_response = f"""Perfect, {customer_name}! I've immediately escalated your case to our orchestrator system.
-
-    **Current Status:** Your complaint has been routed and is now in the investigation queue with a tracking ID: {tracking_id}.
-
-    Our mortgage specialist team now has all your details and will begin investigating this payment increase immediately. You'll receive updates as we make progress on your case.
-
-    Now, let me gather some additional details to help our investigation team resolve this more effectively:
-
-    {first_question}"""
+            complaint_text = conversation_state.get("complaint_text", "")
             
+            followup_decision = await self._should_ask_followup_questions(triage_results, complaint_text)
             
-            # ✅ FIX: Set questions_asked to 0, no question in this response
-            self.conversation_states[conversation_id].update({
-                "stage": "follow_up_questions_active",
-                "questions_asked": 0,  # ✅ No question asked yet
-                "max_questions": 3,
-                "gathered_additional_info": [],
-                "orchestrator_notified": True,
-                "current_question_category": primary_category,
-                "emotional_state": emotional_state,
+            if followup_decision["sufficient_information"]:
+                # SUFFICIENT INFO: Complete the case routing WITH STRUCTURED SUMMARY
+                # Generate structured response using Eva's prompt system
+                structured_response = await self._generate_structured_resolution_response(
+                    customer_name, tracking_id, followup_decision, triage_results
+                )
                 
-            })
+                # Set to normal chat - no follow-up needed
+                self.conversation_states[conversation_id].update({
+                    "stage": "normal_chat",
+                    "orchestrator_notified": True,
+                    "complaint_resolved": True,
+                    "followup_decision": followup_decision
+                })
+                
+                return {
+                    "response": structured_response,
+                    "conversation_id": conversation_id,
+                    "stage": "normal_chat",
+                    "ready_for_normal_chat": True
+                }
+            else:
+                # INSUFFICIENT INFO: Start limited follow-up questions (max 2)
+                max_questions = followup_decision["suggested_questions_count"] 
             
-            return {
-                "response": combined_response,
-                "conversation_id": conversation_id,
-                "stage": "follow_up_questions_ready",  # Different stage to trigger question next
-                "question_number": 1  
-            }
+                # Generate structured response for follow-up questions (ENDS at transition)
+                structured_response = await self._generate_structured_followup_response(
+                    customer_name, tracking_id, followup_decision, max_questions, triage_results
+                )
+                
+                # Set up for questions but DON'T ask first question yet
+                if "triage_analysis" in triage_results:
+                    analysis = triage_results["triage_analysis"]
+                    primary_category = analysis["primary_category"]
+                    emotional_state = analysis.get("emotional_state", "neutral")
+                else:
+                    primary_category = triage_results.get("primary_category", "general")
+                    emotional_state = triage_results.get("emotional_state", "neutral")
+            
+                # UPDATED: Set up limited follow-up questions with immediate first question trigger
+                self.conversation_states[conversation_id].update({
+                    "stage": "ready_for_first_question",  # Changed from follow_up_questions_active
+                    "questions_asked": 0,  
+                    "max_questions": max_questions,  
+                    "gathered_additional_info": [],
+                    "orchestrator_notified": True,
+                    "current_question_category": primary_category,
+                    "emotional_state": emotional_state,
+                    "followup_decision": followup_decision
+                })
+                
+                return {
+                    "response": structured_response,
+                    "conversation_id": conversation_id,
+                    "stage": "ready_for_first_question",
+                    "needs_first_question": True  # This will trigger first question immediately
+                }
                 
         elif confirmation_analysis["needs_correction"]:
             # Customer wants correction
@@ -3245,12 +3465,16 @@ I want to make sure our resolution plan addresses exactly what matters most to y
 
     def _get_first_question_by_category(self, primary_category: str, emotional_state: str) -> str:
         """
-        Get the first follow-up question based on complaint category
+        Generate contextually aware first question - avoid asking what customer already provided
         """
-        # Add empathy prefix for stressed customers
         empathy_prefix = ""
         if emotional_state in ["anxious", "frustrated", "angry"]:
             empathy_prefix = "I understand this is very stressful. "
+        
+        # For mortgage complaints - avoid redundant questions
+        if primary_category == "mortgage_related_issues":
+            # Don't ask about the issue they already described
+            return f"{empathy_prefix}Have you received any notices or communications from us about this payment change, or did it appear without any advance warning?"
         
         # Category-specific first questions
         if primary_category == "fraudulent_activities_unauthorized_transactions":
@@ -3446,4 +3670,3 @@ I want to make sure our resolution plan addresses exactly what matters most to y
             print(f"⚠️ Eva cleanup error: {e}")
 
 
-            
