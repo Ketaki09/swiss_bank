@@ -2712,7 +2712,6 @@ I want to make sure our resolution plan addresses exactly what matters most to y
                 "stage": "follow_up_complete"
             }
         else:
-            # ✅ GENERALIZED: Ask next question using AI
             next_question_number = current_questions_asked + 1
             
             # Generate question dynamically based on context
