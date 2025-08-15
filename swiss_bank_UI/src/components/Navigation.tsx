@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Menu, X, Shield } from 'lucide-react';
 
@@ -9,8 +8,7 @@ const Navigation = () => {
     { name: 'Private Banking', href: '#services' },
     { name: 'Corporate Banking', href: '#services' },
     { name: 'Trading', href: '#trading' },
-    { name: 'About', href: '#about' },
-    { name: 'Contact', href: '#contact' }
+    { name: 'Agent', href: '/swiss-agent' }, 
   ];
 
   return (
@@ -73,3 +71,4 @@ const Navigation = () => {
 };
 
 export default Navigation;
+
