@@ -1,5 +1,5 @@
-
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
 
 export default {
 	darkMode: ["class"],
@@ -73,6 +73,12 @@ export default {
 				md: 'calc(var(--radius) - 2px)',
 				sm: 'calc(var(--radius) - 4px)'
 			},
+			// Add custom transition timing functions to fix the warning
+			transitionTimingFunction: {
+				'custom-ease': 'cubic-bezier(0.165, 0.85, 0.45, 1)',
+				'smooth': 'cubic-bezier(0.4, 0, 0.2, 1)',
+				'bounce-in': 'cubic-bezier(0.68, -0.55, 0.265, 1.55)',
+			},
 			keyframes: {
 				'accordion-down': {
 					from: {
@@ -130,5 +136,7 @@ export default {
 			}
 		}
 	},
-	plugins: [require("tailwindcss-animate")],
+	plugins: [tailwindcssAnimate],
 } satisfies Config;
+
+
