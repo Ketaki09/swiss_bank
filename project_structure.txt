@@ -5,6 +5,7 @@ swiss_bank/                                   # Project root folder
 │   │   ├── .vscode/                          # VS Code configuration
 │   │   │   └── settings.json
 │   │   │ 
+│   │   ├── chroma_db/                        # Vector database
 │   │   ├── models/                           # Data models
 │   │   │   ├── __pycache__/                  # Python cache files
 │   │   │   ├── __init__.py
@@ -19,14 +20,15 @@ swiss_bank/                                   # Project root folder
 │   │   │   ├── banking_policy_service.py 
 │   │   │   ├── database_service.py
 │   │   │   ├── email_service.py              # Updated email service
-│   │   │   ├── eva_agent_service.py         
+│   │   │   ├── eva_agent_service.py     
+│   │   │   ├── rag_service.py                # NEW
+│   │   │   ├── swiss_agent_service.py        # NEW    
 │   │   │   └── triage_agent_service.py
 │   │   │ 
 │   │   ├── static/                           # Static files 
-│   │   │   ├── css/
-│   │   │   ├── js/
-│   │   │   ├── images/
 │   │   │   └── favicon.ico
+│   │   │ 
+│   │   ├── temp_uploads/                    
 │   │   │ 
 │   │   ├── templates/                        # Email templates 
 │   │   │   └── emails/                       # Email template files
@@ -37,22 +39,15 @@ swiss_bank/                                   # Project root folder
 │   │   │       ├── otp_email.html
 │   │   │       └── resolution_notification.html
 │   │   │ 
-│   │   ├── utils/                            # Utility functions (OPTIONAL)
-│   │   │   ├── __init__.py
-│   │   │   ├── validators.py
-│   │   │   ├── helpers.py
-│   │   │   └── constants.py
-│   │   │ 
 │   │   ├── tests/                            # Test files 
-│   │   │   ├── __init__.py
 │   │   │   ├── test_email_api.py             # Testing email endpoints
 │   │   │   ├── test_eva_endpoint.py          # Testing eva agent service
 │   │   │   ├── test_health_api.py            # Testing API health 
 │   │   │   └── test_sms_api.py
 │   │   │ 
 │   │   ├── .env                              # Environment variables
-│   │   ├── main.py                           # FastAPI application entry point
-│   │   │ 
+│   │   └── main.py                           # FastAPI application entry point
+│   │    
 │   ├── data/                                 # Data generation and storage
 │   │   ├── sample_data/                      # Sample data files (OPTIONAL)
 │   │   │   ├── complaints.json
@@ -81,7 +76,14 @@ swiss_bank/                                   # Project root folder
 │   │  
 │   ├── src/                                   # Source code
 │   │   ├── components/                        # Reusable UI components
+│   │   │   ├── agent/                         # NEW
+│   │   │   │   ├── ChatMessage.tsx            # NEW
+│   │   │   │   ├── ChatInput.tsx              # NEW
+│   │   │   │   ├── ChatHistory.tsx            # NEW
+│   │   │   │   └── WelcomeScreen.tsx          # NEW
+│   │   │   │
 │   │   │   ├── ui/                            # UI library components
+│   │   │   │
 │   │   │   ├── About.tsx
 │   │   │   ├── Contact.tsx
 │   │   │   ├── EvaChat.tsx
@@ -103,16 +105,18 @@ swiss_bank/                                   # Project root folder
 │   │   ├── pages/                            # Top-level page components
 │   │   │   ├── AuthTestPage.tsx
 │   │   │   ├── Index.tsx
-│   │   │   └── NotFound.tsx
+│   │   │   ├── NotFound.tsx
+│   │   │   └── SwissAgent.tsx                # NEW
 │   │   │  
-│   │   ├── services/                            
+│   │   ├── services/      
+│   │   │   ├── agentService.ts                # NEW                      
 │   │   │   ├── authService.ts                 # Authentication flow (frontend Translator)
 │   │   │   └── VoiceService.ts                # Speech recognition
 │   │   │  
 │   │   ├── types/ 
 │   │   │   └── speech-recognition.d.ts        # TypeScript
 │   │   │  
-│   │   ├── app.css
+│   │   ├── App.css
 │   │   ├── App.tsx
 │   │   ├── index.css
 │   │   ├── main.tsx
@@ -126,7 +130,6 @@ swiss_bank/                                   # Project root folder
 │   ├── package-lock.json
 │   ├── package.json
 │   ├── postcss.config.js
-│   ├── README.md
 │   ├── tailwind.config.ts
 │   ├── tsconfig.app.json
 │   ├── tsconfig.json
@@ -135,8 +138,6 @@ swiss_bank/                                   # Project root folder
 │   └── website_structure.txt
 │
 ├── .gitignore                                # Global gitignore
-├── .gitmodules                               # Access git sub modules
-├── README.md                                 # Project documentation
 ├── docker-compose.yml                        # Docker configuration (OPTIONAL)
 ├── Dockerfile                                # Docker configuration (OPTIONAL)
 ├── project_structure.txt

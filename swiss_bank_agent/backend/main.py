@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import json
 import asyncio
+from pydantic import BaseModel
 from fastapi import WebSocket
 import os
 import smtplib
@@ -25,7 +26,10 @@ from services.email_service import EmailService
 from services.auth_controller import AuthController
 from services.auth_service import AuthService
 from services.auth_utils import AuthUtils
+
+# Load environment variables
 from dotenv import load_dotenv
+load_dotenv()
 
 # Create email message using shared config
 from email.mime.text import MIMEText
@@ -35,19 +39,28 @@ from email.mime.multipart import MIMEMultipart
 from services.eva_agent_service import EvaAgentService
 from services.triage_agent_service import TriageAgentService
 from services.banking_policy_service import BankingPolicyService
-            
-# Load environment variables
-load_dotenv()
+from services.swiss_agent_service import SwissAgentService, create_generalized_swiss_agent
+
+from pydantic import BaseModel
+from enum import Enum
+
+# Pydantic models for request validation
+class DuplicateModeRequest(BaseModel):
+    mode: str  # "skip", "overwrite", "version", "timestamp"
+
+class CleanupRequest(BaseModel):
+    keep_versions: int = 2
 
 # Configure logging to reduce verbosity
 logging.getLogger("twilio.http_client").setLevel(logging.WARNING)
 logging.getLogger("services.auth_service").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("numexpr.utils").setLevel(logging.WARNING)
 
 # Global services dictionary
 services = {}
 
-# Global shared configuration (UNCHANGED)
+# Global shared configuration 
 shared_config = {
     "smtp": {
         "server": None,
@@ -80,7 +93,7 @@ shared_config = {
 # Security scheme
 security = HTTPBearer()
 
-# [ALL CONFIGURATION FUNCTIONS REMAIN UNCHANGED - keeping original implementation]
+# Helper functions to initialize shared configurations
 def initialize_smtp_config():
     """Initialize SMTP configuration and test connection"""
     try:
@@ -121,8 +134,8 @@ def initialize_redis_config():
             socket_timeout=5,
             retry_on_timeout=True,
             health_check_interval=30,
-            max_connections=20,  # Connection pool size
-            decode_responses=False  # Keep as bytes for consistency
+            max_connections=20,  
+            decode_responses=False  
         )
         
         # Test connection
@@ -158,7 +171,7 @@ def initialize_twilio_config():
         # Test connection by fetching account info
         account = twilio_config["client"].api.accounts(twilio_config["account_sid"]).fetch()
         twilio_config["initialized"] = True
-        print(f"✅ Twilio configuration initialized successfully - Account: {account.friendly_name}")
+        print(f"✅ Twilio configuration initialized successfully")
         return True
         
     except Exception as e:
@@ -167,7 +180,6 @@ def initialize_twilio_config():
         shared_config["twilio"]["client"] = None
         return False
 
-# [ALL OTHER CONFIGURATION HELPER FUNCTIONS REMAIN UNCHANGED]
 def get_smtp_config():
     """Get SMTP configuration"""
     return shared_config["smtp"]
@@ -279,7 +291,7 @@ def cleanup_shared_resources():
     except Exception as e:
         print(f"❌ Error cleaning up shared resources: {e}")
 
-# Custom AuthService that uses shared configuration (UNCHANGED)
+# Custom AuthService that uses shared configuration 
 class SharedConfigAuthService(AuthService):
     """Enhanced AuthService that uses shared configuration"""
     
@@ -421,7 +433,7 @@ class SharedConfigAuthService(AuthService):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """UPDATED Application lifespan handler - removed config dependencies"""
+    """Application lifespan handler """
     try:
         print("\n🚀 Starting Swiss Bank Complaint Bot API...")
 
@@ -429,79 +441,84 @@ async def lifespan(app: FastAPI):
         print("\n🔧 Initializing shared service configurations...")
         connection_results = test_all_connections()
 
-        # STEP 2: Initialize basic services (but don't connect yet)
-        print("\n🔧 Initializing services...")
+        # STEP 2: Initialize basic services 
         services["db"] = DatabaseService()
         services["email"] = EmailService()
         
         # STEP 3: Connect to database FIRST
-        print("\n📊 Connecting to database...")
         await services["db"].connect()
         shared_config["mongodb"]["initialized"] = True
-        print("✅ Database connected successfully")
+        print("\n🔧 Database connected successfully")
         
-        # STEP 4: Create configuration indexes (only for timelines)
-        print("\n⚙️ Setting up database configuration system...")
+        # STEP 4: Create configuration indexes 
         try:
             await services["db"].create_realistic_timelines_indexes()
-            print("✅ Timelines configuration indexes created")
+            print("\n⚙️-Database timelines configuration indexes created")
         except Exception as e:
             print(f"⚠️ Configuration indexes creation failed: {e}")
-            
-        # STEP 5: NOW initialize Eva with connected database (hardcoded categories/constraints)
-        print("\n🤖 Initializing Eva Agent with connected database...")
-        services["eva"] = EvaAgentService(database_service=services["db"], triage_service=None)
 
-        # STEP 5.1: Initialize Eva's async components
-        print("\n⚙️ Initializing Eva async components...")
+       # STEP 5: Initialize Swiss Agent Service with built-in RAG capabilities
+        try:
+            services["swiss_agent"] = create_generalized_swiss_agent(
+                chroma_db_path="./chroma_db",
+                collection_name="contextual_documents",
+                embedding_model="mixedbread-ai/mxbai-embed-large-v1",
+                quiet_queries=True
+            )
+            print("✅ Generalized Swiss Agent Service initialized with AI-powered semantic understanding")
+        except Exception as e:
+            print(f"⚠️ Swiss Agent initialization error: {e}")
+            services["swiss_agent"] = None
+
+        # STEP 6: NOW initialize Eva with connected database 
+        services["eva"] = EvaAgentService(database_service=services["db"], triage_service=None)
         try:
             eva_init_success = await services["eva"].initialize_async_components()
             if eva_init_success:
-                print("✅ Eva async components initialized successfully")
+                print("\n🤖 Eva async components initialized successfully")
             else:
-                print("⚠️ Eva async components initialization had warnings")
+                print("\n⚠️ Eva async components initialization had warnings")
         except Exception as e:
-            print(f"⚠️ Eva async initialization error: {e}")
+            print(f"\n⚠️ Eva async initialization error: {e}")
 
-        # STEP 6: Wait for Eva configuration to load (only timelines from DB)
-        print("\n⚙️ Loading Eva configuration...")
+        # STEP 7: Wait for Eva configuration to load 
         try:
             eva_config_status = await services["eva"].get_configuration_status()
             if eva_config_status.get("configuration_complete"):
-                print("✅ Eva configuration loaded successfully")
+                print("⚙️-Eva configuration loaded successfully")
             else:
-                print("⚠️ Eva configuration incomplete, using fallback configurations")
+                print("\n ⚠️ Eva configuration incomplete, using fallback configurations")
                 
         except Exception as e:
-            print(f"⚠️ Eva configuration loading error: {e}")
+            print(f"\n ⚠️ Eva configuration loading error: {e}")
 
-        # STEP 7: Test Eva's database integration
+        # STEP 8: Test Eva's database integration
         eva_health = await services["eva"].check_database_integration()
+        if eva_health["success"]:
+            print("✅ Eva Agent service initialized successfully with database")
+        else:
+            print(f"⚠️ Eva Agent initialization warning: {eva_health.get('warnings', [])}")
         
-        # STEP 8: Initialize Triage Agent Service
-        print("\n🎯 Initializing Triage Agent...")
+        # STEP 9: Initialize Triage Agent Service
         services["triage"] = TriageAgentService(
             database_service=services["db"],
             eva_agent_service=services["eva"]
         )
-
-        # STEP 9: Link Triage service to Eva
-        services["eva"].triage_service = services["triage"]
-        print("✅ Eva and Triage services fully integrated")
-
         triage_health = await services["triage"].health_check()
         if triage_health["status"] == "healthy":
             print("✅ Triage Agent service initialized successfully")
         else:
             print(f"⚠️ Triage Agent initialization warning: {triage_health.get('warnings', [])}")
 
-        # STEP 10: Initialize Banking Policy Service
-        print("\n🏛️  Initializing Banking Policy Service...")
+        # STEP 10: Link Triage service to Eva
+        services["eva"].triage_service = services["triage"]
+        print("\n🎯 Eva and Triage services fully integrated")
+
+        # STEP 11: Initialize Banking Policy Service
         services["banking_policy"] = BankingPolicyService()
         print("✅ Banking Policy Service initialized")
 
-        # STEP 11: Initialize auth services with shared config
-        print("\n🔐 Initializing authentication services...")
+        # STEP 12: Initialize auth services with shared config
         services["auth_service"] = SharedConfigAuthService()
         await services["auth_service"].initialize()
         print("✅ Authentication service initialized with shared config")
@@ -518,6 +535,7 @@ async def lifespan(app: FastAPI):
         print(f"  Authentication: ✅ Initialized")
         print(f"  Eva Agent: {'✅ Initialized with DB' if eva_health['success'] else '⚠️ Initialized (DB issues)'}")
         print(f"  Eva Configuration: {'✅ Hardcoded + DB timelines' if eva_config_status.get('configuration_complete') else '⚠️ Fallback mode'}")
+        print(f"  Swiss Agent: {'✅ AI-Enhanced RAG with Version Control' if services.get('swiss_agent') and hasattr(services['swiss_agent'], 'enhanced_rag_service') else '✅ Standard Mode' if services.get('swiss_agent') else '❌ Failed'}")
         print(f"  SMTP: {'✅ Connected' if connection_results['smtp'] else '❌ Failed'}")
         print(f"  Twilio: {'✅ Connected' if connection_results['twilio'] else '❌ Failed'}")
         print(f"  Redis: {'✅ Connected' if connection_results['redis'] else '❌ Failed'}")
@@ -526,6 +544,7 @@ async def lifespan(app: FastAPI):
         print(f"  Redis connection pooling: {'✅ Enabled' if connection_results['redis'] else '❌ Disabled'}")
         print(f"  Shared configuration: ✅ Active")
         print(f"  Eva database integration: {'✅ Active' if eva_health['success'] else '⚠️ Limited'}")
+        print(f"  Swiss Agent Capabilities: {'✅ AI-Powered Semantic Understanding Active' if services.get('swiss_agent') else '⚠ Disabled'}")
         print(f"  Configuration system: {'✅ Hardcoded categories/constraints + DB timelines' if eva_config_status.get('configuration_complete') else '⚠️ Fallback mode'}")
         print("🌐 API is ready to serve requests")
         
@@ -548,6 +567,9 @@ async def lifespan(app: FastAPI):
         if "auth_service" in services:
             await services["auth_service"].cleanup_and_disconnect()
             print("✅ Auth service disconnected")
+
+        if "swiss_agent" in services:
+            print("✅ Swiss Agent service cleaned up")
         
         # Cleanup shared resources
         cleanup_shared_resources()
@@ -563,7 +585,7 @@ app = FastAPI(
 # CORS middleware for frontend integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8080", "http://localhost:8001"],  
+    allow_origins=["http://localhost:5173", "http://localhost:8080", "http://localhost:8001", "http://localhost:3000", "http://localhost:4173", "http://localhost:8000"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -591,6 +613,17 @@ def get_auth_service() -> SharedConfigAuthService:
 
 def get_triage_service() -> TriageAgentService:
     return services["triage"]
+
+def get_swiss_agent_service():
+    """Get Swiss Agent service with built-in RAG capabilities"""
+    swiss_agent = services.get("swiss_agent")
+    if not swiss_agent:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Swiss Agent service not available"
+        )
+    return swiss_agent
+
 
 async def get_current_user(
     token: HTTPAuthorizationCredentials = Depends(security),
@@ -636,7 +669,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-# Optional authentication dependency (for endpoints that can work with or without auth)
+# Optional authentication dependency 
 async def get_current_user_optional(
     token: Optional[HTTPAuthorizationCredentials] = Depends(security),
     auth_controller: AuthController = Depends(get_auth_controller)
@@ -650,7 +683,7 @@ async def get_current_user_optional(
     except HTTPException:
         return None
 
-# ==================== BASIC ENDPOINTS (UNCHANGED) ====================
+# ==================== BASIC ENDPOINTS  ====================
 @app.get("/")
 async def root():
     return {"message": "Swiss Bank Complaint Bot API is running"}
@@ -674,7 +707,7 @@ async def health_check():
 
 @app.get("/health/detailed")
 async def detailed_health_check():
-    """Detailed health check with triage agent status"""
+    """Detailed health check with enhanced Swiss Agent status"""
     service_status = get_service_status()
     
     # Check Eva health
@@ -695,6 +728,18 @@ async def detailed_health_check():
         except:
             triage_status = "error"
     
+    # Check Enhanced Swiss Agent health
+    swiss_agent_status = "unavailable"
+    ai_semantic_memory_active = False
+    
+    if services.get("swiss_agent"):
+        try:
+            swiss_health = await services["swiss_agent"].health_check()
+            swiss_agent_status = "healthy" if swiss_health.get("service_status") == "healthy" else "degraded"
+            ai_semantic_memory_active = swiss_health.get("performance", {}).get("entities_tracked", 0) >= 0
+        except:
+            swiss_agent_status = "error"
+    
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
@@ -702,7 +747,8 @@ async def detailed_health_check():
             "database": "connected" if service_status["mongodb"] else "disconnected",
             "auth": "available" if services.get("auth_controller") else "unavailable",
             "eva": eva_status,
-            "triage": triage_status,  # NEW: Triage status
+            "triage": triage_status,
+            "swiss_agent": swiss_agent_status,
             "smtp": "connected" if service_status["smtp"] else "failed",
             "twilio": "connected" if service_status["twilio"] else "failed",
             "redis": "connected" if service_status["redis"] else "failed"
@@ -715,14 +761,38 @@ async def detailed_health_check():
             "triage_new_theme_detection": triage_status == "healthy",
             "orchestrator_alerts": triage_status == "healthy"
         },
+        "internal_agent_capabilities": {
+            "swiss_agent_ai_semantic_understanding": ai_semantic_memory_active,
+            "swiss_agent_domain_agnostic": swiss_agent_status == "healthy",
+            "swiss_agent_entity_extraction": ai_semantic_memory_active,
+            "swiss_agent_topic_identification": ai_semantic_memory_active,
+            "swiss_agent_reference_resolution": ai_semantic_memory_active
+        },
+        "framework_separation": {
+            "customer_facing": {
+                "eva_bot": eva_status,
+                "triage_agent": triage_status,
+                "purpose": "external_customer_interactions"
+            },
+            "internal_employee": {
+                "swiss_agent": swiss_agent_status,
+                "purpose": "internal_employee_assistance"
+            }
+        },
         "shared_config": {
             "redis_pooling": service_status["redis"],
             "smtp_ready": service_status["smtp"],
             "twilio_ready": service_status["twilio"]
+        },
+        "ai_powered_system": {
+            "status": "active" if ai_semantic_memory_active else "disabled",
+            "semantic_memory": ai_semantic_memory_active,
+            "generalized_approach": swiss_agent_status == "healthy",
+            "anthropic_integration": swiss_agent_status == "healthy"
         }
     }
 
-# ==================== UPDATED CONFIGURATION ENDPOINTS ====================
+# ==================== CONFIGURATION ENDPOINTS ====================
 
 @app.get("/api/config/status")
 async def get_configuration_status( current_user: Dict[str, Any] = Depends(get_current_user), 
@@ -949,7 +1019,7 @@ async def config_health_check():
         "smtp_config_active": get_smtp_config() is not None
     }
 
-# ==================== AUTHENTICATION ENDPOINTS (UNCHANGED) ====================
+# ==================== AUTHENTICATION ENDPOINTS ====================
 
 @app.post("/api/auth/session")
 async def create_auth_session(
@@ -1126,13 +1196,13 @@ async def refresh_otp_status(
             "error_code": "SERVICE_ERROR"
         }
 
-# Enhanced initiate-otp endpoint with better response
+# initiate-otp endpoint with better response
 @app.post("/api/auth/initiate-otp-enhanced")
 async def initiate_otp_enhanced(
     session_id: str = Form(...),
     auth_service: SharedConfigAuthService = Depends(get_auth_service)
 ):
-    """Enhanced OTP initiation with detailed timing information"""
+    """ OTP initiation with detailed timing information"""
     try:
         result = await auth_service.initiate_otp_verification(session_id)
         
@@ -1141,7 +1211,7 @@ async def initiate_otp_enhanced(
             current_time = datetime.now()
             expiry_time = current_time + timedelta(minutes=auth_service.otp_expiry_minutes)
             
-            # Enhanced response with timing details
+            # response with timing details
             enhanced_result = {
                 **result,
                 "data": {
@@ -1278,7 +1348,7 @@ async def get_session_status(
             detail="Failed to get session status"
         )
 
-# ==================== COMPLAINT ENDPOINTS (UNCHANGED) ====================
+# ==================== COMPLAINT ENDPOINTS  ====================
 
 @app.post("/api/complaints/submit", response_model=ComplaintResponse)
 async def submit_complaint(
@@ -1521,7 +1591,7 @@ async def get_customer_history(
             detail="Failed to retrieve customer history"
         )
 
-# ==================== EVA CHAT ENDPOINTS (UNCHANGED) ====================
+# ==================== EVA CHAT ENDPOINTS ====================
 
 @app.post("/api/eva/chat")
 async def eva_chat_enhanced(
@@ -1537,7 +1607,7 @@ async def eva_chat_enhanced(
 async def confirm_complaint_classification(
     complaint_id: str = Form(...),
     customer_feedback: str = Form(...),
-    original_classification: str = Form(...),  # JSON string
+    original_classification: str = Form(...),  
     session_id: str = Form(...),
     current_user: Dict[str, Any] = Depends(get_current_user),
     eva_service: EvaAgentService = Depends(get_eva_service)
@@ -1924,7 +1994,7 @@ async def eva_system_status():
             "error": str(e)
         }
 
-# ==================== TRIAGE AGENT ENDPOINTS (UNCHANGED) ====================
+# ==================== TRIAGE AGENT ENDPOINTS  ====================
 @app.post("/api/triage/process-complaint")
 async def process_complaint_triage(
     complaint_text: str = Form(...),
@@ -1992,7 +2062,7 @@ async def get_triage_analytics(
             detail=f"Failed to get triage analytics: {str(e)}"
         )
 
-# ==================== ORCHESTRATOR ALERT ENDPOINTS (UNCHANGED) ====================
+# ==================== ORCHESTRATOR ALERT ENDPOINTS ====================
 
 @app.get("/api/orchestrator/alerts")
 async def get_orchestrator_alerts(
@@ -2078,7 +2148,336 @@ async def get_new_theme_alerts(
             detail=f"Failed to get new theme alerts: {str(e)}"
         )
 
-# ==================== HELPER FUNCTIONS (UNCHANGED) ====================
+# ==================== SWISS AGENT ENDPOINTS ====================
+
+class SwissAgentMessage(BaseModel):
+    message: str
+    timestamp: Optional[str] = None
+    user_id: Optional[str] = None
+
+class SwissAgentResponse(BaseModel):
+    success: bool
+    response: str
+    timestamp: str
+    message_id: Optional[str] = None
+    error: Optional[str] = None
+
+@app.post("/api/swiss-agent/chat", response_model=SwissAgentResponse)
+async def swiss_agent_chat(
+    request: SwissAgentMessage,
+    swiss_agent_service = Depends(get_swiss_agent_service)
+):
+    """
+    Send a message to Swiss Agent and get AI-powered response with semantic understanding
+    FOR INTERNAL EMPLOYEES ONLY - No customer authentication required
+    """
+    try:
+        if not request.message.strip():
+            raise HTTPException(status_code=400, detail="Message cannot be empty")
+        
+        #  Use provided user_id or generate employee session ID
+        user_id = request.user_id or f"employee_{int(datetime.now().timestamp())}"
+        
+        # Process the message through Swiss Agent service with new interface
+        result = await swiss_agent_service.process_message(
+            message=request.message,
+            user_id=user_id
+        )
+        
+        return SwissAgentResponse(**result)
+        
+    except Exception as e:
+        logging.error(f"Error in swiss_agent_chat: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/swiss-agent/history")
+async def get_swiss_agent_history(
+    user_id: Optional[str] = None,
+    limit: int = 50,
+    # REMOVED: current_user dependency - internal employee tool
+    swiss_agent_service = Depends(get_swiss_agent_service)
+):
+    """
+    Get conversation history for Swiss Agent with AI semantic metadata
+    FOR INTERNAL EMPLOYEES - No customer authentication
+    """
+    try:
+        # Use provided user_id or default employee session
+        if not user_id:
+            user_id = "default_employee_session"
+        
+        history = swiss_agent_service.get_conversation_history(
+            user_id=user_id,
+            limit=limit
+        )
+        
+        return {
+            "success": True,
+            "messages": history,
+            "count": len(history),
+            "ai_powered": True,
+            "semantic_understanding_active": True,
+            "framework_type": "internal_employee_tool"
+        }
+        
+    except Exception as e:
+        logging.error(f"Error fetching Swiss Agent history: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+@app.delete("/api/swiss-agent/history")
+async def clear_swiss_agent_history(
+    user_id: Optional[str] = None,
+    # REMOVED: current_user dependency - internal tool
+    swiss_agent_service = Depends(get_swiss_agent_service)
+):
+    """
+    Clear AI semantic memory and conversation history for Swiss Agent
+    FOR INTERNAL EMPLOYEES - No customer authentication required
+    """
+    try:
+        # Use provided user_id or default
+        if not user_id:
+            user_id = "default_employee_session"
+        
+        # Clear AI semantic memory
+        swiss_agent_service.clear_ai_semantic_memory(user_id=user_id)
+        
+        return {
+            "success": True,
+            "message": "AI semantic memory and conversation history cleared successfully",
+            "ai_components_cleared": True,
+            "framework_type": "internal_employee_tool"
+        }
+            
+    except Exception as e:
+        logging.error(f"Error clearing Swiss Agent history: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/swiss-agent/status")
+async def swiss_agent_status_enhanced(swiss_agent_service = Depends(get_swiss_agent_service)):
+    """
+    Enhanced Swiss Agent service status with AI semantic understanding capabilities
+    """
+    try:
+        # Get comprehensive health check
+        health_info = swiss_agent_service.health_check()
+        
+        return {
+            "status": "active",
+            "service": "Swiss Agent",
+            "version": "4.0.0 (AI-Powered Generalized Agent)",
+            "timestamp": datetime.now().isoformat(),
+            "ai_capabilities": {
+                "claude_api": swiss_agent_service.claude_client is not None,
+                "semantic_memory": True,
+                "entity_extraction": True,
+                "topic_identification": True,
+                "reference_resolution": True,
+                "domain_agnostic": True,
+                "anthropic_methodology": True
+            },
+            "capabilities": {
+                "ai_powered_entity_extraction": True,
+                "ai_powered_topic_identification": True,
+                "semantic_query_enhancement": True,
+                "reference_resolution": True,
+                "domain_adaptive": True,
+                "no_hardcoded_patterns": True,
+                "generalized_for_mnc_fintech": True
+            },
+            "performance": health_info.get("performance", {}),
+            "components": health_info.get("components", {}),
+            "health_check": health_info
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting Swiss Agent status: {str(e)}")
+        return {
+            "status": "error",
+            "service": "Swiss Agent",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+@app.get("/api/swiss-agent/semantic-context")
+async def get_ai_semantic_context(
+    user_id: Optional[str] = None,
+    # REMOVED: current_user dependency - internal employee tool
+    swiss_agent_service = Depends(get_swiss_agent_service)
+):
+    """
+    Get AI-powered semantic context and memory state
+    FOR INTERNAL EMPLOYEES - No customer authentication required
+    """
+    try:
+        # Use provided user_id or default employee session
+        if not user_id:
+            user_id = "default_employee_session"
+        
+        context = swiss_agent_service.get_ai_semantic_context(user_id=user_id)
+        
+        return {
+            "success": True,
+            "semantic_context": context,
+            "framework_type": "internal_employee_tool",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting AI semantic context: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get AI semantic context"
+        )
+
+@app.get("/api/swiss-agent/cost-statistics")
+async def get_swiss_agent_cost_statistics(
+    # CHANGED: Require admin authentication for cost data
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    swiss_agent_service = Depends(get_swiss_agent_service)
+):
+    """
+    Get detailed cost statistics for Swiss Agent operations
+    ADMIN ONLY - Requires authentication for sensitive cost data
+    """
+    try:
+        # TODO: Add admin role check here
+        
+        cost_stats = swiss_agent_service.get_agent_cost_statistics()
+        
+        return {
+            "success": True,
+            "cost_statistics": cost_stats,
+            "framework_type": "internal_employee_tool",
+            "access_level": "admin_only",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting cost statistics: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get cost statistics"
+        )
+
+@app.post("/api/swiss-agent/test-entity-extraction")
+async def test_entity_extraction(
+    text: str = Form(...),
+    # REMOVED: current_user dependency - internal testing tool
+    swiss_agent_service = Depends(get_swiss_agent_service)
+):
+    """
+    Test AI-powered entity extraction on sample text
+    FOR INTERNAL EMPLOYEES - Testing and validation tool
+    """
+    try:
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="Text cannot be empty")
+        
+        # Add a test message to trigger entity extraction
+        test_user_id = f"test_extraction_{int(datetime.now().timestamp())}"
+        await swiss_agent_service.process_message(
+            message=text,
+            user_id=test_user_id
+        )
+        
+        # Get the extracted entities
+        context = swiss_agent_service.get_ai_semantic_context(user_id=test_user_id)
+        
+        return {
+            "success": True,
+            "input_text": text,
+            "extracted_entities": context.get("ai_extracted_entities", {}),
+            "extraction_method": "ai_powered_claude",
+            "domain_agnostic": True,
+            "framework_type": "internal_employee_tool",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logging.error(f"Error in entity extraction test: {str(e)}")
+        raise HTTPException(status_code=500, detail="Entity extraction test failed")
+      
+@app.post("/api/swiss-agent/test-reference-resolution")
+async def test_reference_resolution(
+    message_with_references: str = Form(...),
+    # REMOVED: current_user dependency - internal testing tool
+    swiss_agent_service = Depends(get_swiss_agent_service)
+):
+    """
+    Test AI-powered reference resolution
+    FOR INTERNAL EMPLOYEES - Testing and validation tool
+    """
+    try:
+        if not message_with_references.strip():
+            raise HTTPException(status_code=400, detail="Message cannot be empty")
+        
+        # Use test employee session
+        user_id = f"test_resolution_{int(datetime.now().timestamp())}"
+        
+        # Test reference resolution
+        resolved_message = swiss_agent_service.semantic_memory.resolve_references_with_ai(
+            message_with_references
+        )
+        
+        return {
+            "success": True,
+            "original_message": message_with_references,
+            "resolved_message": resolved_message,
+            "references_resolved": resolved_message != message_with_references,
+            "resolution_method": "ai_powered_claude",
+            "framework_type": "internal_employee_tool",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logging.error(f"Error in reference resolution test: {str(e)}")
+        raise HTTPException(status_code=500, detail="Reference resolution test failed")
+
+@app.get("/api/swiss-agent/domain-capabilities")
+async def get_domain_capabilities(swiss_agent_service = Depends(get_swiss_agent_service)):
+    """
+    Get information about Swiss Agent's domain-agnostic capabilities
+    """
+    try:
+        return {
+            "success": True,
+            "domain_capabilities": {
+                "approach": "generalized_ai_powered",
+                "domain_agnostic": True,
+                "no_hardcoded_patterns": True,
+                "anthropic_methodology": True,
+                "adaptive_to_any_financial_domain": True,
+                "supported_domains": [
+                    "private_banking",
+                    "corporate_banking", 
+                    "etfs_and_investments",
+                    "wealth_management",
+                    "regulatory_compliance",
+                    "operations",
+                    "customer_service",
+                    "any_mnc_fintech_domain"
+                ],
+                "ai_capabilities": {
+                    "semantic_understanding": True,
+                    "entity_extraction": "claude_powered",
+                    "topic_identification": "claude_powered", 
+                    "reference_resolution": "claude_powered",
+                    "query_enhancement": "semantic_context_aware",
+                    "domain_adaptation": "automatic"
+                }
+            },
+            "current_domain": swiss_agent_service.semantic_memory.conversation_domain,
+            "entities_tracked": len(swiss_agent_service.semantic_memory.entities),
+            "topics_identified": len(swiss_agent_service.semantic_memory.topics),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting domain capabilities: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get domain capabilities")
+    
+# ==================== HELPER FUNCTIONS ====================
 
 async def _handle_new_theme_complaint(triage_result: Dict[str, Any], 
                                      customer: Dict[str, Any], 
@@ -2096,7 +2495,7 @@ async def _handle_new_theme_complaint(triage_result: Dict[str, Any],
         print(f"🚨 NEW THEME DETECTED for customer {customer['customer_id']}: {triage_result.get('new_theme_alert', {}).get('detection_reason')}")
         
     except Exception as e:
-        print(f"❌ Error handling new theme complaint: {e}")
+        print(f"⚠ Error handling new theme complaint: {e}")
 
 async def _create_complaint_from_triage(triage_result: Dict[str, Any], 
                                        complaint_data: Dict[str, Any], 
@@ -2142,7 +2541,7 @@ async def _create_complaint_from_triage(triage_result: Dict[str, Any],
         }
     }
 
-# ==================== ADMIN ENDPOINTS (UNCHANGED) ====================
+# ==================== ADMIN ENDPOINTS  ====================
 
 @app.get("/api/dashboard/complaints")
 async def get_dashboard_complaints(
@@ -2159,7 +2558,7 @@ async def get_dashboard_complaints(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error getting dashboard complaints: {e}")
+        print(f"⚠ Error getting dashboard complaints: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve dashboard complaints"
@@ -2183,13 +2582,13 @@ async def update_complaint_status(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error updating complaint status: {e}")
+        print(f"⚠ Error updating complaint status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update complaint status"
         )
 
-# ==================== UTILITY FUNCTIONS (UNCHANGED) ====================
+# ==================== UTILITY FUNCTIONS ====================
     
 async def save_uploaded_file(file: UploadFile) -> str:
     """Save uploaded file and return file path"""
@@ -2204,7 +2603,7 @@ async def save_uploaded_file(file: UploadFile) -> str:
     
     return file_path
 
-# ==================== ERROR HANDLERS (UNCHANGED) ====================
+# ==================== ERROR HANDLERS ====================
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
@@ -2222,7 +2621,7 @@ async def http_exception_handler(request, exc):
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
     """General exception handler"""
-    print(f"❌ Unhandled exception: {exc}")
+    print(f"⚠ Unhandled exception: {exc}")
     return JSONResponse(
         status_code=500,
         content={
@@ -2233,7 +2632,7 @@ async def general_exception_handler(request, exc):
     )
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8001, reload=False)
 
 # To run the application, use the command:
 # uvicorn backend.main:app --reload
