@@ -1,0 +1,20 @@
+{
+  "last_run": {
+    "timestamp": "2025-08-19T19:45:12.920744",
+    "files_processed": 1,
+    "files_skipped": 0,
+    "files_overwritten": 0,
+    "files_with_errors": 0,
+    "contextual_enhancements": 1,
+    "processing_time_seconds": 52.68224811553955,
+    "duplicate_mode": "skip",
+    "chunking_strategy": "semantic",
+    "retrieval_strategy": "contextual_hybrid"
+  },
+  "totals": {
+    "total_files_processed": 1,
+    "total_contextual_enhancements": 1,
+    "total_processing_runs": 1,
+    "total_processing_time": 52.68224811553955
+  }
+}
