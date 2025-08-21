@@ -1,18 +1,102 @@
 // Path: swiss_bank_UI/src/pages/SwissAgent.tsx
 
-import React, { useState, useCallback } from 'react';
-import { ArrowLeft, Plus, MessageSquare } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { ArrowLeft, Plus, MessageSquare, Wifi, WifiOff, AlertCircle, Search, ChevronRight, MoreVertical, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import ChatHistory from '../components/agent/ChatHistory';
 import ChatInput from '../components/agent/ChatInput';
-import agentService, { Message } from '../services/agentService';
+import WelcomeScreen from '../components/agent/WelcomeScreen';
+import agentService, { Message, SwissAgentStatusResponse } from '../services/agentService';
 
 const SwissAgent: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [historyExpanded, setHistoryExpanded] = useState(true);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
+  const [serviceStatus, setServiceStatus] = useState<SwissAgentStatusResponse | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Mock chat history for demonstration - replace with actual chat sessions
+  const mockChatSessions = [
+    { id: '2', title: 'Banking Policy Questions', date: 'Today', active: false },
+    { id: '3', title: 'Account Management Procedures', date: 'June', active: false },
+    { id: '4', title: 'Compliance Guidelines', date: 'June', active: false },
+    { id: '5', title: 'Customer Service Protocols', date: 'May', active: false },
+    { id: '6', title: 'Risk Assessment Framework', date: 'May', active: false },
+  ];
+
+  // Create current conversation entry if there are active messages
+  const getCurrentConversationTitle = () => {
+    if (messages.length === 0) return 'New Conversation';
+    
+    // Get the first user message to create a title
+    const firstUserMessage = messages.find(msg => msg.role === 'user');
+    if (firstUserMessage) {
+      // Take first few words of the message as title
+      const words = firstUserMessage.content.trim().split(' ');
+      const title = words.slice(0, 4).join(' ');
+      return title.length > 30 ? title.substring(0, 27) + '...' : title;
+    }
+    return 'Current Conversation';
+  };
+
+  // Combine current conversation with mock sessions
+  const allSessions = messages.length > 0 
+    ? [
+        { 
+          id: 'current', 
+          title: getCurrentConversationTitle(), 
+          date: 'Today', 
+          active: true 
+        },
+        ...mockChatSessions
+      ]
+    : mockChatSessions;
+
+  // Group chat sessions by date
+  const groupedSessions = allSessions.reduce((acc, session) => {
+    if (!acc[session.date]) {
+      acc[session.date] = [];
+    }
+    acc[session.date].push(session);
+    return acc;
+  }, {} as Record<string, typeof allSessions>);
+
+  // Check backend connection and service status on component mount
+  useEffect(() => {
+    const checkConnection = async () => {
+      setConnectionStatus('checking');
+      
+      const isConnected = await agentService.testConnection();
+      if (isConnected) {
+        setConnectionStatus('connected');
+        
+        // Get service status
+        const status = await agentService.getServiceStatus();
+        setServiceStatus(status);
+        
+        // Load chat history
+        const history = await agentService.getChatHistory();
+        setMessages(history);
+        
+        setErrorMessage(null);
+      } else {
+        setConnectionStatus('disconnected');
+        setErrorMessage('Unable to connect to Swiss Agent service. Please ensure the backend is running on localhost:8001.');
+      }
+    };
+
+    checkConnection();
+  }, []);
 
   const handleSendMessage = useCallback(async (content: string) => {
+    // Check connection before sending
+    if (connectionStatus === 'disconnected') {
+      setErrorMessage('Cannot send message. Backend service is not available.');
+      return;
+    }
+
     // Create user message
     const userMessage: Message = {
       id: agentService.generateMessageId(),
@@ -25,189 +109,320 @@ const SwissAgent: React.FC = () => {
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
     setIsTyping(true);
+    setErrorMessage(null);
 
     try {
       // Send message to backend
       const response = await agentService.sendMessage(content);
       
-      // Simulate typing delay for better UX
-      setTimeout(() => {
-        setIsTyping(false);
-        
-        // Create assistant message
-        const assistantMessage: Message = {
-          id: agentService.generateMessageId(),
-          content: response.message,
-          role: 'assistant',
-          timestamp: new Date(),
-        };
+      if (response.success) {
+        // Simulate typing delay for better UX
+        setTimeout(() => {
+          setIsTyping(false);
+          
+          // Create assistant message
+          const assistantMessage: Message = {
+            id: response.message_id || agentService.generateMessageId(),
+            content: response.message,
+            role: 'assistant',
+            timestamp: new Date(response.timestamp || new Date()),
+          };
 
-        setMessages(prev => [...prev, assistantMessage]);
-        setIsLoading(false);
-      }, 1000);
+          setMessages(prev => [...prev, assistantMessage]);
+          setIsLoading(false);
+        }, 1000);
+      } else {
+        throw new Error(response.error || 'Unknown error occurred');
+      }
 
     } catch (error) {
       setIsTyping(false);
       setIsLoading(false);
       
-      // Add error message
+      const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred';
+      setErrorMessage(errorMsg);
+      
+      // Add error message to chat
       const errorMessage: Message = {
         id: agentService.generateMessageId(),
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: `Sorry, I encountered an error: ${errorMsg}. Please try again.`,
         role: 'assistant',
         timestamp: new Date(),
       };
 
       setMessages(prev => [...prev, errorMessage]);
     }
-  }, []);
+  }, [connectionStatus]);
 
   const handleGoBack = () => {
-    // Navigate back to home page
     window.location.href = '/';
   };
 
-  const handleNewChat = () => {
-    setMessages([]);
+  const handleNewChat = async () => {
+    if (connectionStatus === 'connected') {
+      const success = await agentService.clearChatHistory();
+      if (success) {
+        setMessages([]);
+        setErrorMessage(null);
+      } else {
+        setErrorMessage('Failed to clear chat history. Please try again.');
+      }
+    } else {
+      setMessages([]);
+      setErrorMessage(null);
+    }
   };
 
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
+  const getConnectionIcon = () => {
+    switch (connectionStatus) {
+      case 'connected':
+        return <Wifi className="w-4 h-4 text-green-400" />;
+      case 'disconnected':
+        return <WifiOff className="w-4 h-4 text-red-400" />;
+      case 'checking':
+        return <Wifi className="w-4 h-4 text-yellow-400 animate-pulse" />;
+      default:
+        return <WifiOff className="w-4 h-4 text-gray-400" />;
+    }
+  };
+
+  const getConnectionText = () => {
+    switch (connectionStatus) {
+      case 'connected':
+        return 'Connected';
+      case 'disconnected':
+        return 'Disconnected';
+      case 'checking':
+        return 'Connecting...';
+      default:
+        return 'Unknown';
+    }
   };
 
   return (
-    <div className="flex flex-col h-screen bg-black font-serif">
-      {/* Full Width Navigation Bar */}
-      <header className="flex items-center justify-between p-4 border-b border-black bg-black w-full">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleGoBack}
-            className="p-2 hover:bg-gray-800 rounded-lg transition-colors duration-200"
-            title="Back to Home"
-          >
-            <ArrowLeft className="w-5 h-5 text-yellow-400" />
-          </button>
+    <div className="flex h-screen bg-black font-serif">
+      {/* Grok-Style Sidebar */}
+      <div className={`flex-shrink-0 border-r border-gray-800 bg-black transition-all duration-200 ${sidebarOpen ? 'w-72' : 'w-16'}`}>
+        <div className="flex h-full w-full flex-col">
           
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center overflow-hidden">
-              <img 
-                src="/Images_upload/bank_logo.png" 
-                alt="Swiss Bank Logo" 
-                className="w-8 h-8 object-contain"
-              />
+          {/* Header - Logo Section */}
+          <div className="h-16 flex flex-row justify-between items-center gap-0 shrink-0 px-2">
+            {sidebarOpen ? (
+              <div className="flex items-center gap-3 px-1">
+                <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center overflow-hidden">
+                  <img 
+                    src="/Images_upload/bank_logo.png" 
+                    alt="Swiss Bank Logo" 
+                    className="w-8 h-8 object-contain"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="w-full flex justify-center">
+                <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center overflow-hidden">
+                  <img 
+                    src="/Images_upload/bank_logo.png" 
+                    alt="Swiss Bank Logo" 
+                    className="w-6 h-6 object-contain"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Content */}
+          <div className="flex min-h-0 flex-col overflow-auto grow relative overflow-x-hidden" style={{maskImage: 'linear-gradient(black 85%, transparent 100%)', maskComposite: 'add'}}>
+            
+            {/* Search Bar */}
+            {sidebarOpen && (
+              <div className="relative w-full min-w-0 flex-col px-3 shrink-0 transition-[width,transform,opacity] duration-200 h-12 flex justify-center py-1">
+                <button className="flex items-center gap-2 overflow-hidden text-left outline-none ring-yellow-400 transition-[width,height,padding] focus-visible:ring-1 hover:text-yellow-400 text-sm hover:bg-gray-800 flex-1 px-3 rounded-full border border-gray-700 bg-gray-900 justify-start text-yellow-400 h-10 mx-1">
+                  <div className="flex items-center justify-center w-6 h-6 shrink-0">
+                    <Search className="w-4 h-4" />
+                  </div>
+                  <span className="space-x-1 align-baseline">
+                    <span>Search</span>
+                    <span className="text-xs text-gray-400">Ctrl+K</span>
+                  </span>
+                </button>
+              </div>
+            )}
+
+            {/* New Chat Section */}
+            <div className="relative flex w-full min-w-0 flex-col px-3 py-1 shrink-0 transition-[width,transform,opacity] duration-200">
+              <ul className="flex w-full min-w-0 flex-col cursor-default gap-px">
+                <li className="group/menu-item whitespace-nowrap font-semibold mx-1 relative">
+                  <button
+                    onClick={handleNewChat}
+                    disabled={connectionStatus === 'disconnected'}
+                    className={`flex items-center gap-2 overflow-hidden rounded-xl text-left outline-none ring-yellow-400 transition-[width,height,padding] focus-visible:ring-1 hover:text-yellow-400 text-sm h-9 border-transparent hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed w-full flex-row group/sidebar-item transition-colors p-2 text-yellow-400 border-transparent ${
+                      sidebarOpen ? 'justify-start' : 'justify-center'
+                    }`}
+                    title={!sidebarOpen ? "New chat" : undefined}
+                  >
+                    {sidebarOpen ? (
+                      <div className="flex flex-row items-center gap-2">
+                        <div className="w-6 h-6 flex items-center justify-center group-active:scale-95 group-hover:scale-105 group-hover:bg-yellow-600 rounded-full transition-all ease-in-out bg-yellow-500 group-hover:shadow-md">
+                          <Plus className="w-3 h-3 text-black" />
+                        </div>
+                        <div className="transition-all duration-200 text-yellow-400 font-medium text-sm tracking-tight">
+                          New chat
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-4 h-4 flex items-center justify-center rounded-full transition-all ease-in-out bg-yellow-500 group-hover:bg-yellow-600">
+                        <Plus className="w-3 h-3 text-black" />
+                      </div>
+                    )}
+                  </button>
+                </li>
+              </ul>
             </div>
-            <div>
-              <h1 className="text-lg font-semibold text-white font-serif">Swiss Agent</h1>
-              <p className="text-sm text-yellow-400 font-serif">Internal Banking Assistant</p>
+
+            {/* History Section */}
+            <div className="relative flex w-full min-w-0 flex-col px-3 py-1 shrink-0 transition-[width,transform,opacity] duration-200">
+              <ul className="flex w-full min-w-0 flex-col cursor-default gap-px">
+                <li className="group/menu-item whitespace-nowrap font-semibold mx-1 relative">
+                  <div
+                    onClick={() => setHistoryExpanded(!historyExpanded)}
+                    className={`flex items-center gap-2 overflow-hidden rounded-xl text-left outline-none ring-yellow-400 transition-[width,height,padding] focus-visible:ring-1 hover:text-yellow-400 text-sm h-9 border-transparent hover:bg-gray-800 w-full flex-row justify-start bg-background text-yellow-400 rounded-xl group/sidebar-item transition-colors p-2 border-transparent cursor-pointer ${
+                      !sidebarOpen ? 'justify-center' : ''
+                    }`}
+                    title={!sidebarOpen ? "History" : undefined}
+                  >
+                    <div className="w-6 h-6 flex items-center justify-center shrink-0 transition-transform">
+                      <button className="flex items-center justify-center h-6 w-6 rounded-lg">
+                        <ChevronRight 
+                          className={`w-4 h-4 transition-transform duration-200 ${historyExpanded ? 'rotate-90' : ''}`} 
+                        />
+                      </button>
+                    </div>
+                    {sidebarOpen && (
+                      <span className="transition-all duration-200">History</span>
+                    )}
+                  </div>
+                </li>
+
+                {/* History Items */}
+                {historyExpanded && sidebarOpen && (
+                  <div className="overflow-hidden">
+                    <div className="flex flex-row gap-px mx-1">
+                      <div className="cursor-pointer ms-2 me-1 py-1">
+                        <div className="border-l border-gray-700 h-full ms-3 me-1"></div>
+                      </div>
+                      <div className="flex flex-col gap-px w-full min-w-0">
+                        {Object.entries(groupedSessions).map(([date, sessions]) => (
+                          <div key={date}>
+                            <div className="py-1 pl-3 text-xs text-yellow-400 sticky top-0 z-20 text-nowrap font-semibold">
+                              {date}
+                            </div>
+                            {sessions.map((session) => (
+                              <div key={session.id} style={{opacity: 1}}>
+                                <a 
+                                  href={session.id === 'current' ? '#' : `/chat/${session.id}`}
+                                  className={`flex items-center gap-2 overflow-hidden rounded-xl text-left outline-none ring-yellow-400 transition-[width,height,padding] focus-visible:ring-1 hover:border-yellow-400 text-sm h-9 border border-transparent hover:bg-transparent group/sidebar-menu-item pl-3 pr-1.5 h-8 text-sm w-full flex-row items-center gap-2 text-white focus:outline-none ${
+                                    session.active ? 'bg-gray-800 border-yellow-400' : ''
+                                  }`}
+                                  onClick={(e) => {
+                                    if (session.id === 'current') {
+                                      e.preventDefault();
+                                      // Current conversation is already active, no navigation needed
+                                    }
+                                  }}
+                                >
+                                  <span 
+                                    className="flex-1 select-none text-nowrap max-w-full overflow-hidden inline-block"
+                                    style={{maskImage: 'linear-gradient(to right, black 85%, transparent 100%)'}}
+                                  >
+                                    {session.title}
+                                  </span>
+                                  <button 
+                                    className="items-center justify-center gap-2 whitespace-nowrap text-sm font-medium leading-normal cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-yellow-400 disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-100 select-none text-gray-400 hover:text-white hover:bg-gray-700 disabled:hover:text-gray-400 disabled:hover:bg-transparent border border-transparent h-6 w-6 hidden group-hover/sidebar-menu-item:flex rounded-lg"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      // Handle options menu
+                                    }}
+                                    title="Options"
+                                  >
+                                    <MoreVertical className="w-3 h-3" />
+                                  </button>
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                        <button className="inline-flex items-center gap-2 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-yellow-400 disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-100 select-none text-gray-400 bg-transparent hover:text-white disabled:hover:text-gray-400 w-full justify-start px-3 text-xs font-semibold no-wrap pb-2 mt-1">
+                          See all
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </ul>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex flex-col gap-2 mt-auto relative shrink-0 h-14">
+            {/* Profile/DP Button - Dynamic positioning */}
+            <div className={`absolute bottom-3 transition-all duration-300 ${sidebarOpen ? 'start-2' : 'opacity-0 pointer-events-none'}`}>
+              <button className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium leading-normal cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-yellow-400 disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-100 select-none text-yellow-400 hover:bg-gray-800 disabled:hover:bg-transparent border border-transparent h-10 w-10 p-1 rounded-full">
+                <span className="relative flex shrink-0 overflow-hidden rounded-full border border-gray-600 hover:opacity-75 transition-opacity duration-150 w-8 h-8">
+                  <div className="aspect-square h-full w-full bg-yellow-500 flex items-center justify-center text-black font-bold text-xs">
+                    SA
+                  </div>
+                </span>
+              </button>
+            </div>
+            
+            {/* Toggle Button - Dynamic positioning */}
+            <div className="cursor-w-resize grow">
+              <button 
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className={`inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium leading-normal cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-yellow-400 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-300 select-none text-gray-400 hover:text-yellow-400 hover:bg-gray-800 disabled:hover:text-gray-400 disabled:hover:bg-transparent h-10 w-10 rounded-full absolute bottom-3 ${
+                  sidebarOpen ? 'end-2' : 'start-1/2 transform -translate-x-1/2'
+                }`}
+                title="Toggle Sidebar"
+              >
+                {/* Grok-style double chevron icons */}
+                {sidebarOpen ? (
+                  <ChevronsLeft className="w-4 h-4 transition-transform duration-200" />
+                ) : (
+                  <ChevronsRight className="w-4 h-4 transition-transform duration-200" />
+                )}
+                <span className="sr-only">Toggle Sidebar</span>
+              </button>
             </div>
           </div>
         </div>
-      </header>
+      </div>
 
-      {/* Main Layout Below Navigation */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar - Below Navigation Bar */}
-        <div className={`flex-shrink-0 border-r border-black bg-black transition-all duration-200 ${sidebarOpen ? 'w-72' : 'w-14'}`}>
-          <nav className="h-full flex flex-col gap-3 pb-2 px-0 transition duration-200">
-            {/* Sidebar Header with Toggle Button */}
-            <div className="flex w-full items-center gap-px p-2">
-              <button
-                onClick={toggleSidebar}
-                className="inline-flex items-center justify-center relative shrink-0 select-none disabled:pointer-events-none disabled:opacity-50 text-yellow-400 border-transparent transition font-serif tracking-tight duration-300 ease-custom-ease hover:bg-gray-800 aria-pressed:bg-gray-700 aria-checked:bg-gray-700 aria-expanded:bg-gray-700 hover:text-yellow-300 aria-pressed:text-yellow-300 aria-checked:text-yellow-300 aria-expanded:text-yellow-300 h-8 w-8 rounded-md active:scale-95 group aria-expanded:bg-transparent aria-expanded:hover:bg-gray-800"
-                type="button"
-                data-testid="pin-sidebar-toggle"
-                aria-label="Sidebar"
-                aria-expanded={sidebarOpen}
+      {/* Main Content Area */}
+      <div className="flex flex-col flex-1 min-w-0 bg-black">
+
+        {/* Error Message Banner */}
+        {errorMessage && (
+          <div className="bg-red-900/20 border-l-4 border-red-500 p-3 mx-4 mt-2 rounded">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-400" />
+              <p className="text-sm text-red-300 font-serif">{errorMessage}</p>
+              <button 
+                onClick={() => setErrorMessage(null)}
+                className="ml-auto text-red-400 hover:text-red-300"
               >
-                <div className="relative w-4 h-4">
-                  <div className={`flex items-center justify-center transition-all duration-300 text-yellow-400 ${sidebarOpen ? 'opacity-100 scale-100 group-hover:opacity-0 group-hover:scale-80' : 'opacity-0 scale-50 group-hover:opacity-100 group-hover:scale-100'}`} style={{width: '16px', height: '16px'}}>
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                      <path d="M16.5 4C17.3284 4 18 4.67157 18 5.5V14.5C18 15.3284 17.3284 16 16.5 16H3.5C2.67157 16 2 15.3284 2 14.5V5.5C2 4.67157 2.67157 4 3.5 4H16.5ZM7 15H16.5C16.7761 15 17 14.7761 17 14.5V5.5C17 5.22386 16.7761 5 16.5 5H7V15ZM3.5 5C3.22386 5 3 5.22386 3 5.5V14.5C3 14.7761 3.22386 15 3.5 15H6V5H3.5Z"></path>
-                    </svg>
-                  </div>
-                  <div className={`flex items-center justify-center absolute inset-0 transition-all duration-300 text-yellow-300 ${sidebarOpen ? 'opacity-0 scale-50 group-hover:scale-100 group-hover:opacity-100' : 'opacity-100 scale-100 group-hover:opacity-0 group-hover:scale-80'}`} style={{width: '16px', height: '16px'}}>
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                      <path d="M3.5 3C3.77614 3 4 3.22386 4 3.5V16.5L3.99023 16.6006C3.94371 16.8286 3.74171 17 3.5 17C3.25829 17 3.05629 16.8286 3.00977 16.6006L3 16.5V3.5C3 3.22386 3.22386 3 3.5 3ZM11.2471 5.06836C11.4476 4.95058 11.7104 4.98547 11.8721 5.16504C12.0338 5.34471 12.0407 5.60979 11.9023 5.79688L11.835 5.87207L7.80371 9.5H16.5C16.7761 9.5 17 9.72386 17 10C17 10.2761 16.7761 10.5 16.5 10.5H7.80371L11.835 14.1279C12.0402 14.3127 12.0568 14.6297 11.8721 14.835C11.6873 15.0402 11.3703 15.0568 11.165 14.8721L6.16504 10.3721L6.09473 10.2939C6.03333 10.2093 6 10.1063 6 10C6 9.85828 6.05972 9.72275 6.16504 9.62793L11.165 5.12793L11.2471 5.06836Z"></path>
-                    </svg>
-                  </div>
-                </div>
+                ×
               </button>
-              
-              {/* Swiss Agent Logo - Only show when expanded */}
-              {sidebarOpen && (
-                <div className="flex flex-col justify-start items-top ml-1 transition-all duration-200">
-                </div>
-              )}
             </div>
+          </div>
+        )}
 
-            {/* New Chat Button */}
-            <div className="flex flex-col px-2 pt-1 gap-px mb-6">
-              <div className="mb-1">
-                <button
-                  onClick={handleNewChat}
-                  className={`inline-flex items-center justify-center relative shrink-0 select-none disabled:pointer-events-none disabled:opacity-50 h-9 rounded-lg min-w-[5rem] active:scale-[0.985] whitespace-nowrap group transition ease-in-out active:!scale-100 hover:bg-transparent hover:!bg-yellow-500/[0.08] active:!bg-yellow-500/15 font-serif ${sidebarOpen ? 'px-4 py-2 flex !justify-start !min-w-0 w-full' : 'w-8 !p-0 !min-w-0'}`}
-                  aria-label="New chat"
-                  title={!sidebarOpen ? "New chat" : undefined}
-                >
-                  {sidebarOpen ? (
-                    <div className="-mx-3 flex flex-row items-center gap-2">
-                      <div className="w-6 h-6 flex items-center justify-center group-active:!scale-[0.98] group-active:!shadow-none group-active:bg-yellow-600 group-hover:-rotate-2 group-hover:scale-105 group-active:rotate-3 rounded-full transition-all ease-in-out bg-yellow-500 group-hover:shadow-md">
-                        <div className="flex items-center justify-center group-hover:scale-105 transition text-black" style={{width: '12px', height: '12px'}}>
-                          <Plus className="w-3 h-3" />
-                        </div>
-                      </div>
-                      <div className="transition-all duration-200 text-yellow-400 font-medium text-sm tracking-tight">New chat</div>
-                    </div>
-                  ) : (
-                    <div className="w-4 h-4 flex items-center justify-center rounded-full transition-all ease-in-out bg-yellow-500 group-hover:bg-yellow-600">
-                      <Plus className="w-3 h-3 text-black" />
-                    </div>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Chat History Section */}
-            <div className="flex flex-grow flex-col overflow-y-auto overflow-x-hidden relative px-2 mb-2">
-              <div className="transition-all duration-200">
-                <div className="flex flex-col">
-                  {sidebarOpen && (
-                    <h3 className="text-yellow-400 pb-2 mt-1 text-xs select-none pl-2 sticky top-0 z-10 bg-gradient-to-b from-black from-50% to-black/40 font-serif">Chat History</h3>
-                  )}
-                  <ul className="flex flex-col gap-px">
-                    <li style={{opacity: 1, height: 'auto'}}>
-                      <div className="relative group">
-                        <div className={`inline-flex items-center justify-center relative shrink-0 select-none disabled:pointer-events-none disabled:opacity-50 text-yellow-400 border-transparent transition font-serif tracking-tight duration-300 ease-custom-ease hover:bg-gray-800 h-8 rounded-md active:scale-[0.985] whitespace-nowrap !text-xs overflow-hidden !min-w-0 group active:bg-gray-700 active:scale-[1.0] ${sidebarOpen ? 'px-3 min-w-[4rem] w-full px-4' : 'w-8 !px-0 !min-w-0'}`}
-                          title={!sidebarOpen ? "No previous chats" : undefined}
-                        >
-                          {sidebarOpen ? (
-                            <div className="-translate-x-2 w-full flex flex-row items-center justify-start gap-3">
-                              <MessageSquare className="w-4 h-4 text-yellow-400 opacity-60" />
-                              <span className="truncate text-sm whitespace-nowrap w-full text-yellow-400 opacity-60 font-serif">No previous chats</span>
-                            </div>
-                          ) : (
-                            <MessageSquare className="w-4 h-4 text-yellow-400 opacity-60" />
-                          )}
-                        </div>
-                      </div>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            {/* Gradient fade at bottom - only when expanded */}
-            {sidebarOpen && (
-              <div className="bg-gradient-to-t from-black to-transparent h-4"></div>
-            )}
-          </nav>
-        </div>
-
-        {/* Centered Chat Area */}
-        <div className="flex flex-col flex-1 min-w-0 bg-black">
-          {/* Chat Messages - Centered Content */}
-          <div className="flex-1 overflow-hidden flex items-center justify-center">
-            <div className="w-full max-w-4xl mx-auto h-full flex flex-col">
+        {/* Chat Area - Centered Content */}
+        <div className="flex-1 overflow-hidden">
+          <div className="w-full h-full flex flex-col">
+            {messages.length === 0 ? (
+              <WelcomeScreen onSendMessage={handleSendMessage} />
+            ) : (
               <div className="flex-1 overflow-hidden">
                 <ChatHistory 
                   messages={messages} 
@@ -215,26 +430,22 @@ const SwissAgent: React.FC = () => {
                   isTyping={isTyping}
                 />
               </div>
-            </div>
+            )}
           </div>
+        </div>
 
-          {/* Chat Input and Footer - Fixed at bottom, also centered */}
-          <div className="flex-shrink-0">
-            <div className="w-full max-w-4xl mx-auto">
-              <ChatInput 
-                onSendMessage={handleSendMessage}
-                isLoading={isLoading}
-                placeholder="Ask Swiss Agent about banking policies, procedures, or any internal questions..."
-              />
-
-              {/* Footer */}
-              <div className="border-t border-black bg-black px-4 py-2">
-                <p className="text-xs text-yellow-400 text-center font-serif">
-                  Swiss Agent can make mistakes. Please double-check with official bank policies.
-                </p>
-              </div>
-            </div>
-          </div>
+        {/* Chat Input - Fixed at bottom */}
+        <div className="flex-shrink-0">
+          <ChatInput 
+            onSendMessage={handleSendMessage}
+            isLoading={isLoading || connectionStatus !== 'connected'}
+            placeholder={
+              connectionStatus === 'connected' 
+                ? "What do you want to know?"
+                : "Connecting to Swiss Agent service..."
+            }
+            disabled={connectionStatus !== 'connected'}
+          />
         </div>
       </div>
     </div>
