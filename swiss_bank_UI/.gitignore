@@ -114,5 +114,6 @@ temp/
 .env.development.local
 .env.test.local
 .env.production.local
-
+.env
+client_secret_*.json
 sensitive.txt
