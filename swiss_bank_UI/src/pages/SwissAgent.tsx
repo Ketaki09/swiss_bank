@@ -1,7 +1,5 @@
-// Path: swiss_bank_UI/src/pages/SwissAgent.tsx
-
 import React, { useState, useCallback, useEffect } from 'react';
-import { ArrowLeft, Plus, MessageSquare, Wifi, WifiOff, AlertCircle, Search, ChevronRight, MoreVertical, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { ArrowLeft, Plus, MessageSquare, Wifi, WifiOff, AlertCircle, Search, ChevronRight, MoreVertical, ChevronsLeft, ChevronsRight, Clock, History } from 'lucide-react';
 import ChatHistory from '../components/agent/ChatHistory';
 import ChatInput from '../components/agent/ChatInput';
 import WelcomeScreen from '../components/agent/WelcomeScreen';
@@ -11,8 +9,10 @@ const SwissAgent: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // TASK 1: Changed default state to false (closed sidebar)
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(true);
+  const [historyHoverOpen, setHistoryHoverOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const [serviceStatus, setServiceStatus] = useState<SwissAgentStatusResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -173,6 +173,38 @@ const SwissAgent: React.FC = () => {
     }
   };
 
+  // Handle clicking on sidebar to expand/collapse
+  const handleSidebarClick = (e: React.MouseEvent) => {
+    console.log('Sidebar clicked!', { target: e.target, currentTarget: e.currentTarget });
+    
+    // Only handle clicks on the sidebar itself, not on interactive elements
+    const target = e.target as HTMLElement;
+    
+    console.log('Target element:', {
+      tagName: target.tagName,
+      className: target.className,
+      id: target.id,
+      closestButton: target.closest('button'),
+      closestA: target.closest('a')
+    });
+    
+    // Don't trigger if clicking on buttons, links, or interactive elements
+    if (
+      target.tagName === 'BUTTON' ||
+      target.tagName === 'A' ||
+      target.closest('button') ||
+      target.closest('a') ||
+      target.closest('[role="button"]')
+    ) {
+      console.log('Click ignored - interactive element');
+      return;
+    }
+
+    console.log('Toggling sidebar from', sidebarOpen, 'to', !sidebarOpen);
+    // Toggle sidebar state
+    setSidebarOpen(!sidebarOpen);
+  };
+
   const getConnectionIcon = () => {
     switch (connectionStatus) {
       case 'connected':
@@ -199,11 +231,131 @@ const SwissAgent: React.FC = () => {
     }
   };
 
+  // History Hover Component - Simplified and with debugging
+  const HistoryHoverPanel = () => {
+    console.log('🎯 HistoryHoverPanel is rendering!', { 
+      sessionsCount: allSessions.length, 
+      sidebarOpen, 
+      historyHoverOpen 
+    });
+    
+    return (
+      <div 
+        className="fixed bg-red-500 border-4 border-yellow-400 rounded-xl shadow-2xl overflow-hidden"
+        style={{
+          left: sidebarOpen ? '288px' : '64px', // Fixed positioning
+          top: '100px',
+          width: '320px',
+          height: '400px',
+          zIndex: 9999, // Very high z-index
+          boxShadow: '0 25px 50px -12px rgba(255, 0, 0, 0.9)', // Red shadow for visibility
+        }}
+        onMouseEnter={() => {
+          console.log('🖱️ Mouse entered history panel');
+          setHistoryHoverOpen(true);
+        }}
+        onMouseLeave={() => {
+          console.log('🖱️ Mouse left history panel');
+          setHistoryHoverOpen(false);
+        }}
+      >
+        {/* Header - Make it very visible */}
+        <div className="p-4 bg-yellow-400 text-black">
+          <h3 className="text-lg font-bold">
+            🎉 CHAT HISTORY POPUP WORKING!
+          </h3>
+          <p className="text-sm">Sessions: {allSessions.length}</p>
+        </div>
+        
+        {/* Content */}
+        <div className="p-4 bg-white text-black max-h-80 overflow-y-auto">
+          {allSessions.length === 0 ? (
+            <div className="text-center">
+              <p className="font-bold">No chat history yet</p>
+              <p className="text-sm">Start a conversation!</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {allSessions.map((session, index) => (
+                <div 
+                  key={session.id}
+                  className="p-2 bg-gray-100 rounded border-2 border-blue-400"
+                >
+                  <div className="font-bold text-blue-600">{session.title}</div>
+                  <div className="text-sm text-gray-600">{session.date}</div>
+                  {session.active && (
+                    <div className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded">
+                      ACTIVE
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-screen bg-black font-serif">
+      <style>{`
+        @keyframes history-panel-enter {
+          from {
+            opacity: 0;
+            transform: translateX(-8px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0) scale(1);
+          }
+        }
+        
+        .history-panel-enter {
+          animation: history-panel-enter 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .history-item-enter {
+          animation: fadeInUp 0.2s ease-out forwards;
+        }
+        
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(4px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        
+        /* Custom scrollbar for history panel */
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: rgba(75, 85, 99, 0.3);
+          border-radius: 3px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(156, 163, 175, 0.5);
+          border-radius: 3px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(156, 163, 175, 0.7);
+        }
+      `}</style>
       {/* Grok-Style Sidebar */}
-      <div className={`flex-shrink-0 border-r border-gray-800 bg-black transition-all duration-200 ${sidebarOpen ? 'w-72' : 'w-16'}`}>
-        <div className="flex h-full w-full flex-col">
+      <div 
+        className={`flex-shrink-0 border-r border-gray-800 bg-black transition-all duration-200 ${sidebarOpen ? 'w-72' : 'w-16'} relative`}
+        onClick={handleSidebarClick}
+        style={{ cursor: 'pointer' }}
+      >
+        <div className="flex h-full w-full flex-col">{/* Removed stopPropagation */}
           
           {/* Header - Logo Section */}
           <div className="h-16 flex flex-row justify-between items-center gap-0 shrink-0 px-2">
@@ -240,22 +392,22 @@ const SwissAgent: React.FC = () => {
                   <div className="flex items-center justify-center w-6 h-6 shrink-0">
                     <Search className="w-4 h-4" />
                   </div>
-                  <span className="space-x-1 align-baseline">
+                  <span className="space-x-1 align-baseline grok-sidebar-text">
                     <span>Search</span>
-                    <span className="text-xs text-gray-400">Ctrl+K</span>
+                    <span className="grok-sidebar-text-muted">Ctrl+K</span>
                   </span>
                 </button>
               </div>
             )}
 
-            {/* New Chat Section */}
+            {/* New Chat Section - CONSISTENT STYLING */}
             <div className="relative flex w-full min-w-0 flex-col px-3 py-1 shrink-0 transition-[width,transform,opacity] duration-200">
               <ul className="flex w-full min-w-0 flex-col cursor-default gap-px">
                 <li className="group/menu-item whitespace-nowrap font-semibold mx-1 relative">
                   <button
                     onClick={handleNewChat}
                     disabled={connectionStatus === 'disconnected'}
-                    className={`flex items-center gap-2 overflow-hidden rounded-xl text-left outline-none ring-yellow-400 transition-[width,height,padding] focus-visible:ring-1 hover:text-yellow-400 text-sm h-9 border-transparent hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed w-full flex-row group/sidebar-item transition-colors p-2 text-yellow-400 border-transparent ${
+                    className={`flex items-center gap-2 overflow-hidden rounded-xl text-left outline-none ring-yellow-400 transition-[width,height,padding] focus-visible:ring-1 hover:text-yellow-400 text-sm h-9 border-transparent hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed w-full flex-row group/sidebar-item transition-colors p-2 text-yellow-400 border-transparent grok-sidebar-text tracking-tight ${
                       sidebarOpen ? 'justify-start' : 'justify-center'
                     }`}
                     title={!sidebarOpen ? "New chat" : undefined}
@@ -265,7 +417,7 @@ const SwissAgent: React.FC = () => {
                         <div className="w-6 h-6 flex items-center justify-center group-active:scale-95 group-hover:scale-105 group-hover:bg-yellow-600 rounded-full transition-all ease-in-out bg-yellow-500 group-hover:shadow-md">
                           <Plus className="w-3 h-3 text-black" />
                         </div>
-                        <div className="transition-all duration-200 text-yellow-400 font-medium text-sm tracking-tight">
+                        <div className="grok-sidebar-text text-yellow-400 tracking-tight">
                           New chat
                         </div>
                       </div>
@@ -279,31 +431,72 @@ const SwissAgent: React.FC = () => {
               </ul>
             </div>
 
-            {/* History Section */}
+            {/* History Section - CONSISTENT STYLING */}
             <div className="relative flex w-full min-w-0 flex-col px-3 py-1 shrink-0 transition-[width,transform,opacity] duration-200">
               <ul className="flex w-full min-w-0 flex-col cursor-default gap-px">
                 <li className="group/menu-item whitespace-nowrap font-semibold mx-1 relative">
-                  <div
-                    onClick={() => setHistoryExpanded(!historyExpanded)}
-                    className={`flex items-center gap-2 overflow-hidden rounded-xl text-left outline-none ring-yellow-400 transition-[width,height,padding] focus-visible:ring-1 hover:text-yellow-400 text-sm h-9 border-transparent hover:bg-gray-800 w-full flex-row justify-start bg-background text-yellow-400 rounded-xl group/sidebar-item transition-colors p-2 border-transparent cursor-pointer ${
-                      !sidebarOpen ? 'justify-center' : ''
-                    }`}
-                    title={!sidebarOpen ? "History" : undefined}
-                  >
-                    <div className="w-6 h-6 flex items-center justify-center shrink-0 transition-transform">
-                      <button className="flex items-center justify-center h-6 w-6 rounded-lg">
-                        <ChevronRight 
-                          className={`w-4 h-4 transition-transform duration-200 ${historyExpanded ? 'rotate-90' : ''}`} 
-                        />
+                  {sidebarOpen ? (
+                    <div 
+                      style={{ position: 'relative' }}
+                      onMouseEnter={(e) => {
+                        e.stopPropagation();
+                        console.log('🖱️ MOUSE ENTERED History section (expanded sidebar)');
+                        setHistoryHoverOpen(true);
+                      }}
+                      onMouseLeave={(e) => {
+                        e.stopPropagation();
+                        console.log('🖱️ MOUSE LEFT History section (expanded sidebar)');
+                        setHistoryHoverOpen(false);
+                      }}
+                    >
+                      <button
+                        onClick={() => setHistoryExpanded(!historyExpanded)}
+                        className="flex items-center gap-2 overflow-hidden rounded-xl text-left outline-none ring-yellow-400 transition-[width,height,padding] focus-visible:ring-1 hover:text-yellow-400 text-sm h-9 border-transparent hover:bg-gray-800 w-full flex-row group/sidebar-item transition-colors p-2 text-yellow-400 border-transparent grok-sidebar-text tracking-tight justify-start"
+                      >
+                        <div className="w-6 h-6 flex items-center justify-center">
+                          <ChevronRight 
+                            className={`w-4 h-4 transition-transform duration-200 ${historyExpanded ? 'rotate-90' : ''}`} 
+                          />
+                        </div>
+                        <span className="grok-sidebar-text text-yellow-400 tracking-tight">History</span>
+                        <div className="ml-auto">
+                          <History className={`w-3 h-3 transition-all duration-200 ${historyHoverOpen ? 'text-yellow-300 scale-110' : 'text-gray-500'}`} />
+                        </div>
                       </button>
+                      
+                      {/* History Hover Panel for expanded sidebar */}
+                      {historyHoverOpen && <HistoryHoverPanel />}
                     </div>
-                    {sidebarOpen && (
-                      <span className="transition-all duration-200">History</span>
-                    )}
-                  </div>
+                  ) : (
+                    <div 
+                      style={{ position: 'relative' }}
+                      onMouseEnter={(e) => {
+                        e.stopPropagation();
+                        console.log('🖱️ MOUSE ENTERED History button (collapsed sidebar)');
+                        setHistoryHoverOpen(true);
+                      }}
+                      onMouseLeave={(e) => {
+                        e.stopPropagation();
+                        console.log('🖱️ MOUSE LEFT History button (collapsed sidebar)');
+                        setHistoryHoverOpen(false);
+                      }}
+                    >
+                      <button
+                        className="flex items-center gap-2 overflow-hidden rounded-xl text-left outline-none ring-yellow-400 transition-[width,height,padding] focus-visible:ring-1 hover:text-yellow-400 text-sm h-9 border-transparent hover:bg-gray-800 w-full flex-row group/sidebar-item transition-colors p-2 text-yellow-400 border-transparent grok-sidebar-text tracking-tight justify-center"
+                        title="History"
+                      >
+                        <div className="w-6 h-6 flex items-center justify-center">
+                          <History className={`w-4 h-4 transition-all duration-200 ${historyHoverOpen ? 'text-yellow-300 scale-110' : ''}`} />
+                        </div>
+                      </button>
+                      
+                      {/* History Hover Panel for collapsed sidebar */}
+                      {historyHoverOpen && <HistoryHoverPanel />}
+                    </div>
+                  )}
                 </li>
 
-                {/* History Items */}
+                {/* History Items - only show when sidebar is open and expanded */}
                 {historyExpanded && sidebarOpen && (
                   <div className="overflow-hidden">
                     <div className="flex flex-row gap-px mx-1">
@@ -313,25 +506,24 @@ const SwissAgent: React.FC = () => {
                       <div className="flex flex-col gap-px w-full min-w-0">
                         {Object.entries(groupedSessions).map(([date, sessions]) => (
                           <div key={date}>
-                            <div className="py-1 pl-3 text-xs text-yellow-400 sticky top-0 z-20 text-nowrap font-semibold">
+                            <div className="py-1 pl-3 grok-sidebar-text-small text-yellow-400 sticky top-0 z-20 text-nowrap font-semibold">
                               {date}
                             </div>
                             {sessions.map((session) => (
                               <div key={session.id} style={{opacity: 1}}>
                                 <a 
                                   href={session.id === 'current' ? '#' : `/chat/${session.id}`}
-                                  className={`flex items-center gap-2 overflow-hidden rounded-xl text-left outline-none ring-yellow-400 transition-[width,height,padding] focus-visible:ring-1 hover:border-yellow-400 text-sm h-9 border border-transparent hover:bg-transparent group/sidebar-menu-item pl-3 pr-1.5 h-8 text-sm w-full flex-row items-center gap-2 text-white focus:outline-none ${
+                                  className={`flex items-center gap-2 overflow-hidden rounded-xl text-left outline-none ring-yellow-400 transition-[width,height,padding] focus-visible:ring-1 hover:border-yellow-400 text-sm h-8 border border-transparent hover:bg-transparent group/sidebar-menu-item pl-3 pr-1.5 w-full flex-row items-center gap-2 text-white focus:outline-none ${
                                     session.active ? 'bg-gray-800 border-yellow-400' : ''
                                   }`}
                                   onClick={(e) => {
                                     if (session.id === 'current') {
                                       e.preventDefault();
-                                      // Current conversation is already active, no navigation needed
                                     }
                                   }}
                                 >
                                   <span 
-                                    className="flex-1 select-none text-nowrap max-w-full overflow-hidden inline-block"
+                                    className="flex-1 select-none text-nowrap max-w-full overflow-hidden inline-block grok-sidebar-text"
                                     style={{maskImage: 'linear-gradient(to right, black 85%, transparent 100%)'}}
                                   >
                                     {session.title}
@@ -341,7 +533,6 @@ const SwissAgent: React.FC = () => {
                                     onClick={(e) => {
                                       e.preventDefault();
                                       e.stopPropagation();
-                                      // Handle options menu
                                     }}
                                     title="Options"
                                   >
@@ -352,7 +543,7 @@ const SwissAgent: React.FC = () => {
                             ))}
                           </div>
                         ))}
-                        <button className="inline-flex items-center gap-2 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-yellow-400 disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-100 select-none text-gray-400 bg-transparent hover:text-white disabled:hover:text-gray-400 w-full justify-start px-3 text-xs font-semibold no-wrap pb-2 mt-1">
+                        <button className="inline-flex items-center gap-2 whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-yellow-400 disabled:opacity-60 disabled:cursor-not-allowed transition-colors duration-100 select-none text-fg-secondary bg-transparent hover:text-white disabled:hover:text-fg-secondary w-full justify-start px-3 grok-sidebar-text-small font-medium no-wrap pb-2 mt-1">
                           See all
                         </button>
                       </div>
@@ -385,7 +576,6 @@ const SwissAgent: React.FC = () => {
                 }`}
                 title="Toggle Sidebar"
               >
-                {/* Grok-style double chevron icons */}
                 {sidebarOpen ? (
                   <ChevronsLeft className="w-4 h-4 transition-transform duration-200" />
                 ) : (
@@ -423,29 +613,30 @@ const SwissAgent: React.FC = () => {
             {messages.length === 0 ? (
               <WelcomeScreen onSendMessage={handleSendMessage} />
             ) : (
-              <div className="flex-1 overflow-hidden">
-                <ChatHistory 
-                  messages={messages} 
-                  isLoading={isLoading}
-                  isTyping={isTyping}
-                />
-              </div>
+              <>
+                <div className="flex-1 overflow-hidden">
+                  <ChatHistory 
+                    messages={messages} 
+                    isLoading={isLoading}
+                    isTyping={isTyping}
+                  />
+                </div>
+                {/* Chat Input - Only show when there are messages */}
+                <div className="flex-shrink-0">
+                  <ChatInput 
+                    onSendMessage={handleSendMessage}
+                    isLoading={isLoading || connectionStatus !== 'connected'}
+                    placeholder={
+                      connectionStatus === 'connected' 
+                        ? "What do you want to know?"
+                        : "Connecting to Swiss Agent service..."
+                    }
+                    disabled={connectionStatus !== 'connected'}
+                  />
+                </div>
+              </>
             )}
           </div>
-        </div>
-
-        {/* Chat Input - Fixed at bottom */}
-        <div className="flex-shrink-0">
-          <ChatInput 
-            onSendMessage={handleSendMessage}
-            isLoading={isLoading || connectionStatus !== 'connected'}
-            placeholder={
-              connectionStatus === 'connected' 
-                ? "What do you want to know?"
-                : "Connecting to Swiss Agent service..."
-            }
-            disabled={connectionStatus !== 'connected'}
-          />
         </div>
       </div>
     </div>

@@ -27,7 +27,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
       {/* Message Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-2">
-          <span className="font-medium text-sm text-white font-serif">
+          <span className="font-medium text-sm text-white"
+                style={{fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"'}}>
             {isUser ? 'You' : 'Swiss Agent'}
           </span>
           <span className="text-xs text-yellow-400">
@@ -39,9 +40,16 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         </div>
         
         <div className="prose prose-sm max-w-none">
-          <div className={`whitespace-pre-wrap leading-relaxed font-serif ${
-            isUser ? 'text-white font-normal' : 'text-gray-100 font-normal'
-          }`}>
+          {/* TASK 3: Claude-style text formatting for messages */}
+          <div className={`whitespace-pre-wrap leading-relaxed ${
+            isUser ? 'text-white' : 'text-gray-100'
+          }`}
+               style={{
+                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"',
+                 fontSize: '16px',
+                 lineHeight: '1.5',
+                 fontWeight: 400
+               }}>
             {message.content}
           </div>
         </div>

@@ -729,8 +729,7 @@ class SwissAgentService:
                     "Instructions for enhancing this answer:",
                     "1. Verify the information makes sense and is complete",
                     "2. Add relevant context and explanations",
-                    "3. Provide actionable next steps or recommendations",
-                    "4. Structure the response clearly with specific details",
+                    "3. Structure the response clearly with specific details",
                     ""
                 ])
             
@@ -763,9 +762,8 @@ class SwissAgentService:
                 "Response Requirements:",
                 "1. Provide a clear, professional answer",
                 "2. Use specific information from documents when available",
-                "3. Include relevant procedures, contacts, or next steps",
-                "4. Maintain conversation continuity",
-                "5. If information is limited, acknowledge this clearly",
+                "3. Maintain conversation continuity",
+                "4. If information is limited, acknowledge this clearly",
                 "",
                 "Response:"
             ])

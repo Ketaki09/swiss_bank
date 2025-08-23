@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -95,11 +94,77 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    font-weight: 400;
+    letter-spacing: normal;
   }
 
   h1, h2, h3, h4, h5, h6 {
     font-family: "Times New Roman", serif;
+  }
+
+  /* Override font-serif for sidebar elements */
+  .sidebar-override {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  }
+
+  /* Grok color system equivalent */
+  .text-fg-primary {
+    color: rgb(255, 255, 255); /* white */
+  }
+
+  .text-fg-secondary {
+    color: rgb(156, 163, 175); /* gray-400 */
+  }
+
+  .text-sidebar-foreground {
+    color: rgb(243, 244, 246); /* gray-100 */
+  }
+
+  /* Grok-style font weights */
+  .font-medium {
+    font-weight: 500;
+  }
+
+  .font-semibold {
+    font-weight: 600;
+  }
+
+  /* Grok-style letter spacing */
+  .tracking-tight {
+    letter-spacing: -0.025em;
+  }
+
+  .leading-normal {
+    line-height: 1.5;
+  }
+
+  /* Grok-exact typography classes */
+  .grok-sidebar-text {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.875rem; /* 14px */
+    font-weight: 500;
+    line-height: 1.25rem; /* 20px */
+    letter-spacing: -0.025em;
+  }
+
+  .grok-sidebar-text-small {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.75rem; /* 12px */
+    font-weight: 400;
+    line-height: 1rem; /* 16px */
+    letter-spacing: 0;
+  }
+
+  .grok-sidebar-text-muted {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.75rem; /* 12px */
+    font-weight: 400;
+    line-height: 1rem; /* 16px */
+    opacity: 0.6;
+    letter-spacing: 0;
   }
 }
 
@@ -159,6 +224,44 @@ All colors MUST be HSL.
 
   .animate-fade-in {
     animation: fadeIn 0.6s ease-out forwards;
+  }
+
+  /* Enhanced History Hover Panel Styles */
+  .history-hover-panel {
+    transform: translateX(0);
+    opacity: 1;
+    visibility: visible;
+    transition: all 0.2s ease-in-out;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(75, 85, 99, 0.3);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  }
+
+  .history-hover-panel-hidden {
+    transform: translateX(-10px);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s ease-in-out;
+  }
+
+  /* Improved hover effects for history items */
+  .history-item {
+    transition: all 0.15s ease-in-out;
+  }
+
+  .history-item:hover {
+    background: rgba(31, 41, 55, 0.8);
+    transform: translateX(2px);
+  }
+
+  /* Sidebar expansion click area */
+  .sidebar-expand-zone {
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out;
+  }
+
+  .sidebar-expand-zone:hover {
+    background: rgba(251, 191, 36, 0.02);
   }
 
   /* Animated border for bot messages */
@@ -222,7 +325,7 @@ All colors MUST be HSL.
   }
 
   /* Animate the pulse border for the welcome icon */
-  @keyframes pulse-border {
+  @keyframes pulse-border-enhanced {
     0%, 100% {
       border-color: #fbbf24;
       box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.4);
@@ -234,166 +337,151 @@ All colors MUST be HSL.
   }
 
   .animate-pulse-border {
-    animation: pulse-border 2s infinite;
+    animation: pulse-border-enhanced 2s infinite;
   }
-  /*
-  .animate-pulse-border {
-    animation: pulse-border 2s ease-in-out infinite;
-  }
-  */
 
   /* Fade in/out animation for typing text */
-@keyframes fade-in-out {
-  0% {
-    opacity: 0;
-    transform: translateY(10px);
+  @keyframes fade-in-out {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    20%, 80% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
   }
-  20%, 80% {
-    opacity: 1;
-    transform: translateY(0);
+
+  .animate-fade-in-out {
+    animation: fade-in-out 2s ease-in-out;
   }
-  100% {
-    opacity: 0;
-    transform: translateY(-10px);
+
+  /* Slow pulse for the avatar */
+  @keyframes pulse-slow {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.8;
+      transform: scale(1.05);
+    }
   }
-}
 
-.animate-fade-in-out {
-  animation: fade-in-out 2s ease-in-out;
-}
-
-/* Slow pulse for the avatar */
-@keyframes pulse-slow {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
+  .animate-pulse-slow {
+    animation: pulse-slow 3s ease-in-out infinite;
   }
-  50% {
-    opacity: 0.8;
-    transform: scale(1.05);
+
+  /* Sequential pulse delays for neural network animation */
+  @keyframes pulse-delay {
+    0%, 100% {
+      opacity: 0.3;
+      transform: scale(0.8);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.2);
+    }
   }
-}
 
-.animate-pulse-slow {
-  animation: pulse-slow 3s ease-in-out infinite;
-}
-
-/* Sequential pulse delays for neural network animation */
-@keyframes pulse-delay {
-  0%, 100% {
-    opacity: 0.3;
-    transform: scale(0.8);
+  .animate-pulse-delay-0 {
+    animation: pulse-delay 2s ease-in-out infinite;
+    animation-delay: 0s;
   }
-  50% {
-    opacity: 1;
-    transform: scale(1.2);
+
+  .animate-pulse-delay-1 {
+    animation: pulse-delay 2s ease-in-out infinite;
+    animation-delay: 0.2s;
   }
-}
 
-.animate-pulse-delay-0 {
-  animation: pulse-delay 2s ease-in-out infinite;
-  animation-delay: 0s;
-}
-
-.animate-pulse-delay-1 {
-  animation: pulse-delay 2s ease-in-out infinite;
-  animation-delay: 0.2s;
-}
-
-.animate-pulse-delay-2 {
-  animation: pulse-delay 2s ease-in-out infinite;
-  animation-delay: 0.4s;
-}
-
-.animate-pulse-delay-3 {
-  animation: pulse-delay 2s ease-in-out infinite;
-  animation-delay: 0.6s;
-}
-
-.animate-pulse-delay-4 {
-  animation: pulse-delay 2s ease-in-out infinite;
-  animation-delay: 0.8s;
-}
-
-/* Brain wave animation */
-@keyframes brain-wave {
-  0% {
-    transform: translateX(-100%);
+  .animate-pulse-delay-2 {
+    animation: pulse-delay 2s ease-in-out infinite;
+    animation-delay: 0.4s;
   }
-  100% {
-    transform: translateX(400%);
+
+  .animate-pulse-delay-3 {
+    animation: pulse-delay 2s ease-in-out infinite;
+    animation-delay: 0.6s;
   }
-}
 
-.animate-brain-wave {
-  animation: brain-wave 3s ease-in-out infinite;
-}
-
-/* Enhanced pulse border for welcome icon */
-@keyframes pulse-border {
-  0%, 100% {
-    border-color: #fbbf24;
-    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.4);
+  .animate-pulse-delay-4 {
+    animation: pulse-delay 2s ease-in-out infinite;
+    animation-delay: 0.8s;
   }
-  50% {
-    border-color: #f59e0b;
-    box-shadow: 0 0 0 8px rgba(251, 191, 36, 0);
+
+  /* Brain wave animation */
+  @keyframes brain-wave {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(400%);
+    }
   }
-}
 
-.animate-pulse-border {
-  animation: pulse-border 2s infinite;
-}
+  .animate-brain-wave {
+    animation: brain-wave 3s ease-in-out infinite;
+  }
 
-/* Smooth transitions for all elements */
-* {
-  transition: opacity 0.3s ease, transform 0.3s ease;
-}
+  /* History icon hover effects */
+  @keyframes history-icon-pulse {
+    0%, 100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.1);
+      opacity: 0.8;
+    }
+  }
 
-/* Custom Scrollbar Styles */
-.scrollbar-thin {
-  scrollbar-width: thin;
-}
+  .history-icon-hover {
+    animation: history-icon-pulse 1.5s ease-in-out infinite;
+  }
 
-.scrollbar-thumb-gray-600::-webkit-scrollbar-thumb {
-  background-color: #4b5563;
-  border-radius: 6px;
-}
+  /* Enhanced hover panel slide animation */
+  @keyframes slideInFromLeft {
+    from {
+      opacity: 0;
+      transform: translateX(-20px) scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) scale(1);
+    }
+  }
 
-.scrollbar-track-gray-800::-webkit-scrollbar-track {
-  background-color: #1f2937;
-}
+  .history-panel-enter {
+    animation: slideInFromLeft 0.2s ease-out forwards;
+  }
 
-.scrollbar-thin::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
+  /* Improved scroll behavior for hover panel */
+  .history-hover-panel::-webkit-scrollbar {
+    width: 6px;
+  }
 
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: #4b5563;
-  border-radius: 6px;
-}
+  .history-hover-panel::-webkit-scrollbar-track {
+    background: rgba(31, 41, 55, 0.3);
+    border-radius: 3px;
+  }
 
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background-color: #6b7280;
-}
+  .history-hover-panel::-webkit-scrollbar-thumb {
+    background: rgba(251, 191, 36, 0.5);
+    border-radius: 3px;
+  }
 
-.scrollbar-thin::-webkit-scrollbar-track {
-  background-color: #1f2937;
-  border-radius: 6px;
-}
+  .history-hover-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(251, 191, 36, 0.7);
+  }
 
-.scrollbar-thin::-webkit-scrollbar-corner {
-  background-color: #1f2937;
-}
-
-/* For Firefox */
-.scrollbar-thin {
-  scrollbar-width: thin;
-  scrollbar-color: #4b5563 #1f2937;
-}
-
-/***
+  /* Smooth transitions for all elements */
+  * {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  }
 
   /* Smooth scroll behavior */
   html {
@@ -416,5 +504,49 @@ All colors MUST be HSL.
 
   .overflow-y-auto::-webkit-scrollbar-thumb:hover {
     background: #f59e0b;
+  }
+
+  /* Grok-style sidebar hover effects */
+  .sidebar-menu-item {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .sidebar-menu-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(251, 191, 36, 0.1),
+      transparent
+    );
+    transition: left 0.5s ease;
+  }
+
+  .sidebar-menu-item:hover::before {
+    left: 100%;
+  }
+
+  /* Enhanced click feedback */
+  .sidebar-clickable {
+    transition: all 0.15s ease-in-out;
+  }
+
+  .sidebar-clickable:active {
+    transform: scale(0.98);
+  }
+
+  /* Hover zone for sidebar expansion */
+  .expand-hover-zone {
+    transition: background-color 0.3s ease;
+  }
+
+  .expand-hover-zone:hover {
+    background: radial-gradient(circle at center, rgba(251, 191, 36, 0.05) 0%, transparent 70%);
   }
 }

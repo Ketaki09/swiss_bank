@@ -114,6 +114,8 @@ swiss_bank/                                   # Project root folder
 │   │   │   └── VoiceService.ts                # Speech recognition
 │   │   │  
 │   │   ├── types/ 
+│   │   │   ├── api-types.ts                   # New exportable types 
+│   │   │   ├── global.d.ts                    # Global declarations only
 │   │   │   └── speech-recognition.d.ts        # TypeScript
 │   │   │  
 │   │   ├── App.css
@@ -122,8 +124,10 @@ swiss_bank/                                   # Project root folder
 │   │   ├── main.tsx
 │   │   └── vite-env.d.ts
 │   │ 
+│   ├── .env                                   # Google and Onedrive API keys 
 │   ├── .gitignore
 │   ├── bun.lockb
+│   ├── client_secret_ID.apps.googleusercontent.com # OAuth Client
 │   ├── components.json
 │   ├── eslint.config.js
 │   ├── index.html
