@@ -46,6 +46,7 @@ filelock==3.18.0
 flatbuffers==25.2.10
 frozenlist @ file:///home/conda/feedstock_root/build_artifacts/frozenlist_1752167153599/work
 fsspec==2025.5.1
+git-filter-repo==2.47.0
 google-auth==2.40.3
 googleapis-common-protos==1.70.0
 grpcio==1.73.1
