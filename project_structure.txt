@@ -1,11 +1,17 @@
-swiss_bank/                                   # Project root folder
-├── Swiss_bank_agent/                         # Backend component (Python/FastAPI)
+SwissBank/                                    # Project root folder
+├── swiss_bank_agent/                         # Backend component 
 │   ├── backend/
 │   │   ├── __pycache__/                      # Python cache files
 │   │   ├── .vscode/                          # VS Code configuration
-│   │   │   └── settings.json
 │   │   │ 
 │   │   ├── chroma_db/                        # Vector database
+│   │   │ 
+│   │   ├── internal_agent/  
+│   │   │   ├── __init__.py                   # package initialization
+│   │   │   ├── optimized_swiss_agent.py      # Main implementation 
+│   │   │   ├── swiss_agent_service.py        # Integration wrapper
+│   │   │   └── rag_service.py                # Vector database creation
+│   │   │ 
 │   │   ├── models/                           # Data models
 │   │   │   ├── __pycache__/                  # Python cache files
 │   │   │   ├── __init__.py
@@ -20,9 +26,7 @@ swiss_bank/                                   # Project root folder
 │   │   │   ├── banking_policy_service.py 
 │   │   │   ├── database_service.py
 │   │   │   ├── email_service.py              # Updated email service
-│   │   │   ├── eva_agent_service.py     
-│   │   │   ├── rag_service.py                # NEW
-│   │   │   ├── swiss_agent_service.py        # NEW    
+│   │   │   ├── eva_agent_service.py                    # NEW  
 │   │   │   └── triage_agent_service.py
 │   │   │ 
 │   │   ├── static/                           # Static files 
