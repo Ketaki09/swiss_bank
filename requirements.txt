@@ -27,6 +27,7 @@ openai==1.93.0
 chromadb==1.0.13
 sentence-transformers==5.1.0
 rank-bm25==0.2.2
+spacy==3.8.7
 
 # ML Core
 torch==2.6.0
