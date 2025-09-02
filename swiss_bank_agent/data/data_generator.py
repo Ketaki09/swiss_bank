@@ -11,6 +11,13 @@ import pymongo
 from dataclasses import dataclass, asdict
 from enum import Enum
 import faker
+import os
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file in backend directory
+env_path = os.path.join(os.path.dirname(__file__), '..', 'backend', '.env')
+load_dotenv(dotenv_path=env_path)
 
 # Initialize Faker for realistic data generation
 fake = faker.Faker()
@@ -107,9 +114,13 @@ class ComplaintConfigurationGenerator:
     This replaces hardcoded values in eva_agent_service.py
     """
     
-    def __init__(self, mongo_connection_string: str = "mongodb://localhost:27017/"):
+    def __init__(self, mongo_connection_string: Optional[str] = None):
+        # Use environment variable if no connection string provided
+        if mongo_connection_string is None:
+            mongo_connection_string = os.getenv('MONGODB_CONNECTION_STRING', 'mongodb://localhost:27017/')
+        
         self.mongo_client = pymongo.MongoClient(mongo_connection_string)
-        self.mongo_db = self.mongo_client['swiss_bank']
+        self.mongo_db = self.mongo_client[os.getenv('MONGODB_DATABASE_NAME', 'swiss_bank')]
         self.config_collection = self.mongo_db['complaint_configuration']
     
     
@@ -295,14 +306,17 @@ class SyntheticDataGenerator:
     Main class for generating synthetic banking complaint data.
     """
     
-    def __init__(self, mongo_connection_string: str = "mongodb://localhost:27017/"):
+    def __init__(self, mongo_connection_string: Optional[str] = None):
         """
         Initialize the synthetic data generator with database connection
-        
         """
+        # Use environment variable if no connection string provided
+        if mongo_connection_string is None:
+            mongo_connection_string = os.getenv('MONGODB_CONNECTION_STRING', 'mongodb://localhost:27017/')
+        
         # MongoDB setup for storing complaint data and embeddings
         self.mongo_client = pymongo.MongoClient(mongo_connection_string)
-        self.mongo_db = self.mongo_client['swiss_bank']  
+        self.mongo_db = self.mongo_client[os.getenv('MONGODB_DATABASE_NAME', 'swiss_bank')]
         self.complaints_collection = self.mongo_db['complaints']
         self.customers_collection = self.mongo_db['customers']
         
@@ -684,7 +698,7 @@ class SyntheticDataGenerator:
         if new_complaints:
             self.complaints_collection.insert_many(new_complaints)
         
-        print(f"✓ MongoDB: Saved {len(new_customers)} new customers, {len(new_complaints)} new complaints")
+        print(f"✅ MongoDB: Saved {len(new_customers)} new customers, {len(new_complaints)} new complaints")
         if duplicate_customers > 0 or duplicate_complaints > 0:
             print(f"  (Skipped {duplicate_customers} duplicate customers, {duplicate_complaints} duplicate complaints)")
     
@@ -722,8 +736,8 @@ class SyntheticDataGenerator:
 # =============================================================================
 
 if __name__ == "__main__":
-    # Initialize generator with MongoDB connection
-    generator = SyntheticDataGenerator(mongo_connection_string="mongodb://localhost:27017/")
+    # Initialize generator with MongoDB connection from environment variables
+    generator = SyntheticDataGenerator()
     
     # Generate and save dataset
     dataset = generator.generate_and_save_dataset(total_complaints=200)
@@ -751,7 +765,7 @@ if __name__ == "__main__":
     print(f"   • Total Complaints: {len(dataset['complaints'])}")
 
     # Generate configuration with proper error handling
-    config_generator = ComplaintConfigurationGenerator(mongo_connection_string="mongodb://localhost:27017/")
+    config_generator = ComplaintConfigurationGenerator()
     
     # Generate and save configuration
     timelines_config = config_generator.generate_and_save_realistic_timelines_only()
@@ -765,3 +779,5 @@ if __name__ == "__main__":
         print(f"   • Active: {timelines_config.get('active', False)}")
     else:
         print(f"\n❌ Failed to generate or retrieve timelines configuration")
+
+
