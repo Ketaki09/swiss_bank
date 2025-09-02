@@ -21,11 +21,8 @@ load_dotenv(dotenv_path=env_path)
 
 # Initialize Faker for realistic data generation
 fake = faker.Faker()
-
-
 # =============================================================================
 # PHONE NUMBER GENERATOR FUNCTION
-# =============================================================================
 
 def generate_phone_number() -> str:
     """
