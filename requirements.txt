@@ -47,3 +47,4 @@ python-dotenv==1.1.1
 faker==37.4.0
 
 gunicorn==21.2.0
+hf-xet==1.1.9
