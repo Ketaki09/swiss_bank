@@ -73,7 +73,6 @@ class RetrievalStrategy(Enum):
     HYBRID = "hybrid"
     CONTEXTUAL_HYBRID = "contextual_hybrid"  
 
-
 class AnthropicContextualRAGService:
     """
     Advanced RAG Service implementing Anthropic's Contextual Retrieval Architecture
