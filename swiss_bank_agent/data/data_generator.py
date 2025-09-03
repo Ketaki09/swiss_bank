@@ -3,6 +3,7 @@
 Swiss Bank Complaint Synthetic Data Generator - MongoDB Only
 """
 import json
+import logging
 import random
 import uuid
 from datetime import datetime, timedelta
@@ -13,14 +14,48 @@ from enum import Enum
 import faker
 import os
 from dotenv import load_dotenv
-import os
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file in backend directory
 env_path = os.path.join(os.path.dirname(__file__), '..', 'backend', '.env')
 load_dotenv(dotenv_path=env_path)
+logger.info(f"Loading environment variables from: {env_path}")
+
+# Log environment variable status
+mongodb_connection = os.getenv('MONGODB_CONNECTION_STRING')
+mongodb_database = os.getenv('MONGODB_DATABASE_NAME')
+
+if mongodb_connection:
+    # Mask password in connection string for logging (security)
+    masked_connection = mongodb_connection
+    if '@' in masked_connection and ':' in masked_connection:
+        parts = masked_connection.split('@')
+        if len(parts) == 2:
+            credentials_part = parts[0]
+            if '//' in credentials_part:
+                protocol, creds = credentials_part.split('//', 1)
+                if ':' in creds:
+                    username, _ = creds.split(':', 1)
+                    masked_connection = f"{protocol}//{username}:****@{parts[1]}"
+    logger.info(f"✅ MONGODB_CONNECTION_STRING found: {masked_connection}")
+else:
+    logger.warning("⚠️ MONGODB_CONNECTION_STRING not found in environment variables")
+
+if mongodb_database:
+    logger.info(f"✅ MONGODB_DATABASE_NAME found: {mongodb_database}")
+else:
+    logger.warning("⚠️ MONGODB_DATABASE_NAME not found in environment variables")
 
 # Initialize Faker for realistic data generation
 fake = faker.Faker()
+logger.info("📝 Faker initialized for realistic data generation")
+
 # =============================================================================
 # PHONE NUMBER GENERATOR FUNCTION
 
@@ -112,17 +147,48 @@ class ComplaintConfigurationGenerator:
     """
     
     def __init__(self, mongo_connection_string: Optional[str] = None):
+        logger.info("🔧 Initializing ComplaintConfigurationGenerator...")
+        
         # Use environment variable if no connection string provided
         if mongo_connection_string is None:
             mongo_connection_string = os.getenv('MONGODB_CONNECTION_STRING', 'mongodb://localhost:27017/')
+            logger.info("📡 Using MongoDB connection string from environment variables")
+        else:
+            logger.info("📡 Using provided MongoDB connection string")
         
-        self.mongo_client = pymongo.MongoClient(mongo_connection_string)
-        self.mongo_db = self.mongo_client[os.getenv('MONGODB_DATABASE_NAME', 'swiss_bank')]
-        self.config_collection = self.mongo_db['complaint_configuration']
+        try:
+            logger.info("🔌 Attempting to connect to MongoDB...")
+            self.mongo_client = pymongo.MongoClient(mongo_connection_string)
+            
+            # Test the connection
+            self.mongo_client.admin.command('ping')
+            logger.info("✅ Successfully connected to MongoDB server")
+            
+            database_name = os.getenv('MONGODB_DATABASE_NAME', 'swiss_bank')
+            self.mongo_db = self.mongo_client[database_name]
+            logger.info(f"🗄️ Connected to database: {database_name}")
+            
+            self.config_collection = self.mongo_db['complaint_configuration']
+            logger.info("📋 Connected to complaint_configuration collection")
+            
+            # Test collection access
+            collection_count = self.config_collection.count_documents({})
+            logger.info(f"📊 Current documents in complaint_configuration collection: {collection_count}")
+            
+        except pymongo.errors.ConnectionFailure as e:
+            logger.error(f"❌ Failed to connect to MongoDB: {e}")
+            raise
+        except pymongo.errors.ServerSelectionTimeoutError as e:
+            logger.error(f"❌ MongoDB server selection timeout: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during MongoDB initialization: {e}")
+            raise
     
     
     def get_realistic_timelines_config(self) -> Dict[str, Any]:
         """Generate realistic timelines configuration - COMPLETE VERSION with all categories"""
+        logger.info("⏰ Generating realistic timelines configuration...")
         return {
             "config_id": "realistic_timelines",
             "version": "1.0", 
@@ -246,42 +312,59 @@ class ComplaintConfigurationGenerator:
     
     def generate_and_save_realistic_timelines_only(self) -> Optional[Dict[str, Any]]:
         """Generate and save all complaint configuration to database"""
-        print("🚀 Generating complaint configuration data...")
+        logger.info("🚀 Generating complaint configuration data...")
         
         try:
             # Check if configurations already exist
+            logger.info("🔍 Checking for existing realistic timelines configuration...")
             existing_config = self.config_collection.find_one({
                 "config_id": "realistic_timelines", 
                 "active": True
             })
 
             if existing_config:
-                print(f"⚠️  Found existing realistic timelines configuration. Skipping generation.")
+                logger.warning("⚠️ Found existing realistic timelines configuration. Skipping generation.")
+                logger.info(f"   📋 Existing config version: {existing_config.get('version', 'N/A')}")
+                logger.info(f"   📅 Created at: {existing_config.get('created_at', 'N/A')}")
                 return existing_config
             
             # Generate realistic timelines configuration
+            logger.info("⏰ Creating new realistic timelines configuration...")
             timelines_config = self.get_realistic_timelines_config()
+            
+            logger.info("💾 Saving configuration to database...")
             result = self.config_collection.insert_one(timelines_config)
-            print(f"✅ Saved realistic timelines configuration to database")
-            print(f"   - {len(timelines_config['timelines'])} timeline configurations")
-            print(f"   - Document ID: {result.inserted_id}")
+            logger.info("✅ Successfully saved realistic timelines configuration to database")
+            logger.info(f"   📊 Timeline configurations: {len(timelines_config['timelines'])}")
+            logger.info(f"   🆔 Document ID: {result.inserted_id}")
             
             return timelines_config
             
+        except pymongo.errors.DuplicateKeyError as e:
+            logger.error(f"❌ Duplicate key error: {e}")
+            return None
+        except pymongo.errors.WriteError as e:
+            logger.error(f"❌ MongoDB write error: {e}")
+            return None
         except Exception as e:
-            print(f"❌ Error saving complaint configuration: {e}")
-            return None  # Return None instead of empty list
+            logger.error(f"❌ Error saving complaint configuration: {e}")
+            return None
     
     def update_timelines_configuration(self, new_timelines_data: Dict[str, Any]) -> bool:
         """Update existing realistic timelines configuration"""
         try:
+            logger.info("🔄 Updating existing realistic timelines configuration...")
+            
             # Deactivate old version
-            self.config_collection.update_one(
+            logger.info("🔽 Deactivating old configuration version...")
+            deactivate_result = self.config_collection.update_one(
                 {"config_id": "realistic_timelines", "active": True},
                 {"$set": {"active": False, "deactivated_at": datetime.now().isoformat()}}
             )
+            logger.info(f"   📝 Deactivated {deactivate_result.modified_count} old configuration(s)")
             
             # Insert new version
+            logger.info("➕ Inserting new configuration version...")
             new_config = {
                 "config_id": "realistic_timelines",
                 "version": f"1.{int(datetime.now().timestamp())}",
@@ -290,12 +373,13 @@ class ComplaintConfigurationGenerator:
                 "active": True
             }
             
-            self.config_collection.insert_one(new_config)
-            print(f"✅ Updated realistic timelines configuration")
+            insert_result = self.config_collection.insert_one(new_config)
+            logger.info("✅ Successfully updated realistic timelines configuration")
+            logger.info(f"   🆔 New document ID: {insert_result.inserted_id}")
             return True
             
         except Exception as e:
-            print(f"❌ Error updating realistic timelines configuration: {e}")
+            logger.error(f"❌ Error updating realistic timelines configuration: {e}")
             return False
 
 class SyntheticDataGenerator:
@@ -307,18 +391,54 @@ class SyntheticDataGenerator:
         """
         Initialize the synthetic data generator with database connection
         """
+        logger.info("🔧 Initializing SyntheticDataGenerator...")
+        
         # Use environment variable if no connection string provided
         if mongo_connection_string is None:
             mongo_connection_string = os.getenv('MONGODB_CONNECTION_STRING', 'mongodb://localhost:27017/')
+            logger.info("📡 Using MongoDB connection string from environment variables")
+        else:
+            logger.info("📡 Using provided MongoDB connection string")
         
-        # MongoDB setup for storing complaint data and embeddings
-        self.mongo_client = pymongo.MongoClient(mongo_connection_string)
-        self.mongo_db = self.mongo_client[os.getenv('MONGODB_DATABASE_NAME', 'swiss_bank')]
-        self.complaints_collection = self.mongo_db['complaints']
-        self.customers_collection = self.mongo_db['customers']
+        try:
+            # MongoDB setup for storing complaint data and embeddings
+            logger.info("🔌 Attempting to connect to MongoDB...")
+            self.mongo_client = pymongo.MongoClient(mongo_connection_string)
+            
+            # Test the connection
+            self.mongo_client.admin.command('ping')
+            logger.info("✅ Successfully connected to MongoDB server")
+            
+            database_name = os.getenv('MONGODB_DATABASE_NAME', 'swiss_bank')
+            self.mongo_db = self.mongo_client[database_name]
+            logger.info(f"🗄️ Connected to database: {database_name}")
+            
+            # Initialize collections
+            self.complaints_collection = self.mongo_db['complaints']
+            self.customers_collection = self.mongo_db['customers']
+            logger.info("📋 Connected to complaints and customers collections")
+            
+            # Test collection access and log current counts
+            complaints_count = self.complaints_collection.count_documents({})
+            customers_count = self.customers_collection.count_documents({})
+            logger.info(f"📊 Current collection counts:")
+            logger.info(f"   • Complaints: {complaints_count}")
+            logger.info(f"   • Customers: {customers_count}")
+            
+        except pymongo.errors.ConnectionFailure as e:
+            logger.error(f"❌ Failed to connect to MongoDB: {e}")
+            raise
+        except pymongo.errors.ServerSelectionTimeoutError as e:
+            logger.error(f"❌ MongoDB server selection timeout: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during MongoDB initialization: {e}")
+            raise
         
         # Initialize complaint templates for each theme
+        logger.info("📝 Initializing complaint templates...")
         self.complaint_templates = self._initialize_complaint_templates()
+        logger.info(f"✅ Initialized {len(self.complaint_templates)} complaint theme templates")
         
     # =========================================================================
     # DATABASE VALIDATION METHODS
@@ -327,15 +447,23 @@ class SyntheticDataGenerator:
     def _customer_exists_mongodb(self, customer_id: str) -> bool:
         """Check if customer already exists in MongoDB"""
         try:
-            return self.customers_collection.count_documents({"customer_id": customer_id}) > 0
-        except Exception:
+            exists = self.customers_collection.count_documents({"customer_id": customer_id}) > 0
+            if exists:
+                logger.debug(f"🔍 Customer {customer_id} already exists in database")
+            return exists
+        except Exception as e:
+            logger.error(f"❌ Error checking customer existence: {e}")
             return False
     
     def _complaint_exists_mongodb(self, complaint_id: str) -> bool:
         """Check if complaint already exists in MongoDB"""
         try:
-            return self.complaints_collection.count_documents({"complaint_id": complaint_id}) > 0
-        except Exception:
+            exists = self.complaints_collection.count_documents({"complaint_id": complaint_id}) > 0
+            if exists:
+                logger.debug(f"🔍 Complaint {complaint_id} already exists in database")
+            return exists
+        except Exception as e:
+            logger.error(f"❌ Error checking complaint existence: {e}")
             return False
         
     # =========================================================================
@@ -463,6 +591,7 @@ class SyntheticDataGenerator:
         Returns:
             CustomerProfile object with randomized but realistic data
         """
+        logger.debug("👤 Generating customer profile...")
         return CustomerProfile(
             customer_id=str(uuid.uuid4()),
             name=fake.name(),
@@ -490,6 +619,7 @@ class SyntheticDataGenerator:
         Returns:
             List of transaction dictionaries
         """
+        logger.debug(f"💳 Generating related transactions for theme: {theme.value}")
         transactions = []
         base_date = datetime.now() - timedelta(days=30)
         
@@ -524,6 +654,7 @@ class SyntheticDataGenerator:
                     "transaction_type": random.choice(["purchase", "withdrawal", "deposit", "transfer"])
                 })
         
+        logger.debug(f"   📊 Generated {len(transactions)} transactions")
         return transactions
     
     def generate_complaint(self, theme: ComplaintTheme, customer_profile: CustomerProfile) -> ComplaintData:
@@ -537,6 +668,7 @@ class SyntheticDataGenerator:
         Returns:
             ComplaintData object with realistic complaint details
         """
+        logger.debug(f"🎫 Generating complaint for theme: {theme.value}")
         template = self.complaint_templates[theme]
         
         # Select random title and description template
@@ -584,6 +716,7 @@ class SyntheticDataGenerator:
                 k=random.randint(1, 3)
             )
         
+        logger.debug(f"   📋 Generated complaint: {title[:50]}...")
         return ComplaintData(
             complaint_id=str(uuid.uuid4()),
             customer_id=customer_profile.customer_id,
@@ -612,13 +745,20 @@ class SyntheticDataGenerator:
         Returns:
             Dictionary containing lists of customers and complaints
         """
+        logger.info(f"🎲 Generating synthetic dataset with {total_complaints} complaints...")
         customers = []
         complaints = []
         
         # Generate customers first (some customers may have multiple complaints)
         num_customers = max(total_complaints // 3, 20)
-        for _ in range(num_customers):
+        logger.info(f"👥 Generating {num_customers} customers...")
+        
+        for i in range(num_customers):
+            if i % 10 == 0:  # Log progress every 10 customers
+                logger.info(f"   👤 Generated {i}/{num_customers} customers...")
             customers.append(self.generate_customer_profile())
+        
+        logger.info(f"✅ Generated {len(customers)} customer profiles")
         
         # Define theme distribution (realistic proportions)
         theme_distribution = {
@@ -629,8 +769,17 @@ class SyntheticDataGenerator:
             ComplaintTheme.ATM_ISSUES: 0.15             # Technical issues
         }
         
+        logger.info("🎫 Generating complaints...")
+        logger.info("   📊 Theme distribution:")
+        for theme, percentage in theme_distribution.items():
+            expected_count = int(total_complaints * percentage)
+            logger.info(f"      • {theme.value}: {percentage*100}% (~{expected_count} complaints)")
+        
         # Generate complaints
-        for _ in range(total_complaints):
+        for i in range(total_complaints):
+            if i % 20 == 0:  # Log progress every 20 complaints
+                logger.info(f"   🎫 Generated {i}/{total_complaints} complaints...")
+            
             # Select theme based on realistic distribution
             theme = random.choices(
                 list(ComplaintTheme),
@@ -643,6 +792,19 @@ class SyntheticDataGenerator:
             # Generate complaint
             complaint = self.generate_complaint(theme, customer)
             complaints.append(complaint)
+        
+        logger.info(f"✅ Generated {len(complaints)} complaints")
+        
+        # Log final statistics
+        theme_counts = {}
+        for complaint in complaints:
+            theme_name = complaint.theme.value
+            theme_counts[theme_name] = theme_counts.get(theme_name, 0) + 1
+        
+        logger.info("📈 Final complaint theme distribution:")
+        for theme_name, count in theme_counts.items():
+            percentage = (count / len(complaints)) * 100
+            logger.info(f"   • {theme_name}: {count} complaints ({percentage:.1f}%)")
         
         return {
             "customers": customers,
@@ -661,9 +823,13 @@ class SyntheticDataGenerator:
         Args:
             dataset: Generated dataset containing customers and complaints
         """
+        logger.info("💾 Saving dataset to MongoDB...")
+        
         # Prepare customers and filter out duplicates
+        logger.info("👥 Processing customers for database insertion...")
         new_customers = []
         duplicate_customers = 0
+        
         for customer in dataset["customers"]:
             if not self._customer_exists_mongodb(customer.customer_id):
                 customer_doc = asdict(customer)
@@ -674,11 +840,21 @@ class SyntheticDataGenerator:
         
         # Insert new customers
         if new_customers:
-            self.customers_collection.insert_many(new_customers)
+            try:
+                logger.info(f"📝 Inserting {len(new_customers)} new customers...")
+                result = self.customers_collection.insert_many(new_customers)
+                logger.info(f"✅ Successfully inserted {len(result.inserted_ids)} customers")
+            except Exception as e:
+                logger.error(f"❌ Error inserting customers: {e}")
+                raise
+        else:
+            logger.info("ℹ️ No new customers to insert")
         
         # Prepare complaints and filter out duplicates
+        logger.info("🎫 Processing complaints for database insertion...")
         new_complaints = []
         duplicate_complaints = 0
+        
         for complaint in dataset["complaints"]:
             if not self._complaint_exists_mongodb(complaint.complaint_id):
                 doc = asdict(complaint)
@@ -693,11 +869,37 @@ class SyntheticDataGenerator:
         
         # Insert new complaints
         if new_complaints:
-            self.complaints_collection.insert_many(new_complaints)
+            try:
+                logger.info(f"📝 Inserting {len(new_complaints)} new complaints...")
+                result = self.complaints_collection.insert_many(new_complaints)
+                logger.info(f"✅ Successfully inserted {len(result.inserted_ids)} complaints")
+            except Exception as e:
+                logger.error(f"❌ Error inserting complaints: {e}")
+                raise
+        else:
+            logger.info("ℹ️ No new complaints to insert")
         
-        print(f"✅ MongoDB: Saved {len(new_customers)} new customers, {len(new_complaints)} new complaints")
+        # Log summary
+        logger.info("💾 Database save summary:")
+        logger.info(f"   ✅ Saved {len(new_customers)} new customers")
+        logger.info(f"   ✅ Saved {len(new_complaints)} new complaints")
+        
         if duplicate_customers > 0 or duplicate_complaints > 0:
-            print(f"  (Skipped {duplicate_customers} duplicate customers, {duplicate_complaints} duplicate complaints)")
+            logger.info("⚠️ Duplicates skipped:")
+            if duplicate_customers > 0:
+                logger.info(f"   • {duplicate_customers} duplicate customers")
+            if duplicate_complaints > 0:
+                logger.info(f"   • {duplicate_complaints} duplicate complaints")
+        
+        # Log final collection counts
+        try:
+            final_customers_count = self.customers_collection.count_documents({})
+            final_complaints_count = self.complaints_collection.count_documents({})
+            logger.info("📊 Final collection counts:")
+            logger.info(f"   • Total customers: {final_customers_count}")
+            logger.info(f"   • Total complaints: {final_complaints_count}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not get final collection counts: {e}")
     
     # =========================================================================
     # PUBLIC API METHODS
@@ -713,19 +915,23 @@ class SyntheticDataGenerator:
         Returns:
             Generated dataset dictionary
         """
-        print(f"🚀 Generating synthetic dataset with {total_complaints} complaints...")
+        logger.info("🚀 Starting synthetic dataset generation...")
+        logger.info(f"   🎯 Target: {total_complaints} complaints")
         
-        # Generate the dataset
-        dataset = self.generate_synthetic_dataset(total_complaints)
-        
-        # Save to MongoDB
         try:
+            # Generate the dataset
+            dataset = self.generate_synthetic_dataset(total_complaints)
+            
+            # Save to MongoDB
+            logger.info("💾 Saving generated data to MongoDB...")
             self.save_to_mongodb(dataset)
+            
+            logger.info("✨ Dataset generation and save completed successfully!")
+            return dataset
+            
         except Exception as e:
-            print(f"❌ MongoDB save failed: {e}")
-        
-        print("✨ Dataset generation complete!")
-        return dataset
+            logger.error(f"❌ Dataset generation failed: {e}")
+            raise
 
 
 # =============================================================================
@@ -733,48 +939,68 @@ class SyntheticDataGenerator:
 # =============================================================================
 
 if __name__ == "__main__":
-    # Initialize generator with MongoDB connection from environment variables
-    generator = SyntheticDataGenerator()
+    logger.info("🏁 Starting Swiss Bank Complaint Synthetic Data Generator")
+    logger.info("="*70)
     
-    # Generate and save dataset
-    dataset = generator.generate_and_save_dataset(total_complaints=200)
-    
-    # Display sample data for verification
-    print("\n" + "="*50)
-    print("SAMPLE GENERATED DATA")
-    print("="*50)
-    
-    print("\n📋 Sample Customer Profile:")
-    sample_customer = asdict(dataset["customers"][0])
-    print(json.dumps(sample_customer, indent=2, default=str))
-    
-    print("\n🎫 Sample Complaint:")
-    sample_complaint = asdict(dataset["complaints"][0])
-    # Convert enums to strings for JSON serialization
-    sample_complaint["theme"] = sample_complaint["theme"].value
-    sample_complaint["channel"] = sample_complaint["channel"].value
-    sample_complaint["severity"] = sample_complaint["severity"].value
-    print(json.dumps(sample_complaint, indent=2, default=str))
-    
-    # Print statistics
-    print(f"\n📊 Dataset Statistics:")
-    print(f"   • Total Customers: {len(dataset['customers'])}")
-    print(f"   • Total Complaints: {len(dataset['complaints'])}")
+    try:
+        # Initialize generator with MongoDB connection from environment variables
+        logger.info("🔧 Initializing data generator...")
+        generator = SyntheticDataGenerator()
+        
+        # Generate and save dataset
+        logger.info("🎲 Starting dataset generation...")
+        dataset = generator.generate_and_save_dataset(total_complaints=200)
+        
+        # Display sample data for verification
+        logger.info("📋 Displaying sample generated data...")
+        print("\n" + "="*50)
+        print("SAMPLE GENERATED DATA")
+        print("="*50)
+        
+        print("\n📋 Sample Customer Profile:")
+        sample_customer = asdict(dataset["customers"][0])
+        print(json.dumps(sample_customer, indent=2, default=str))
+        
+        print("\n🎫 Sample Complaint:")
+        sample_complaint = asdict(dataset["complaints"][0])
+        # Convert enums to strings for JSON serialization
+        sample_complaint["theme"] = sample_complaint["theme"].value
+        sample_complaint["channel"] = sample_complaint["channel"].value
+        sample_complaint["severity"] = sample_complaint["severity"].value
+        print(json.dumps(sample_complaint, indent=2, default=str))
+        
+        # Print statistics
+        print(f"\n📊 Dataset Statistics:")
+        print(f"   • Total Customers: {len(dataset['customers'])}")
+        print(f"   • Total Complaints: {len(dataset['complaints'])}")
 
-    # Generate configuration with proper error handling
-    config_generator = ComplaintConfigurationGenerator()
+        # Generate configuration with proper error handling
+        logger.info("⏰ Initializing complaint configuration generator...")
+        config_generator = ComplaintConfigurationGenerator()
+        
+        # Generate and save configuration
+        logger.info("📝 Generating realistic timelines configuration...")
+        timelines_config = config_generator.generate_and_save_realistic_timelines_only()
+        
+        # Fixed conditional check - now properly handles None case
+        if timelines_config and isinstance(timelines_config, dict):
+            print(f"\n📋 Generated Realistic Timelines Configuration:")
+            print(f"   • Configuration ID: {timelines_config.get('config_id', 'N/A')}")
+            print(f"   • Version: {timelines_config.get('version', 'N/A')}")
+            print(f"   • Timeline categories: {len(timelines_config.get('timelines', {}))}")
+            print(f"   • Active: {timelines_config.get('active', False)}")
+            logger.info("✅ Realistic timelines configuration generated successfully")
+        else:
+            print(f"\n❌ Failed to generate or retrieve timelines configuration")
+            logger.error("❌ Failed to generate realistic timelines configuration")
+        
+        logger.info("🎉 All operations completed successfully!")
+        
+    except Exception as e:
+        logger.error(f"💥 Fatal error during execution: {e}")
+        logger.error("❌ Swiss Bank Data Generator execution failed")
+        raise
     
-    # Generate and save configuration
-    timelines_config = config_generator.generate_and_save_realistic_timelines_only()
-    
-    # Fixed conditional check - now properly handles None case
-    if timelines_config and isinstance(timelines_config, dict):
-        print(f"\n📋 Generated Realistic Timelines Configuration:")
-        print(f"   • Configuration ID: {timelines_config.get('config_id', 'N/A')}")
-        print(f"   • Version: {timelines_config.get('version', 'N/A')}")
-        print(f"   • Timeline categories: {len(timelines_config.get('timelines', {}))}")
-        print(f"   • Active: {timelines_config.get('active', False)}")
-    else:
-        print(f"\n❌ Failed to generate or retrieve timelines configuration")
-
-
+    finally:
+        logger.info("🏁 Swiss Bank Complaint Synthetic Data Generator finished")
+        logger.info("="*70)
