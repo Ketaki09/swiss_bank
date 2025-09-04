@@ -2427,6 +2427,7 @@ class OptimizedRAGSystem:
                 # Create without retrieval_strategy parameter to avoid type error
                 self.rag_service = AnthropicContextualRAGService(
                     chroma_db_path=self.chroma_db_path,
+                    documents_directory=None,
                     collection_name="contextual_documents",
                     embedding_model="infgrad/stella_en_1.5B_v5",
                     quiet_mode=True
@@ -2720,8 +2721,8 @@ class OptimizedResponseGenerator:
         return None
     
     def _generate_with_fallback(self, query: str, intent_result: IntentClassificationResult,
-                               retrieval_result: Dict[str, Any], 
-                               conversation_context: Optional[List[ConversationTurn]]) -> str:
+                           retrieval_result: Dict[str, Any], 
+                           conversation_context: Optional[List[ConversationTurn]]) -> str:
         """SIMPLIFIED: Single generation method with built-in fallback"""
         
         # Try Claude API first if available
@@ -2732,8 +2733,8 @@ class OptimizedResponseGenerator:
                 logger.warning(f"Claude API failed, using fallback: {e}")
                 # Fall through to fallback
         
-        # Fallback response generation
-        return self._generate_fallback_response(query, intent_result, retrieval_result)
+        # Fallback response generation - now uses styled version
+        return self._generate_styled_database_response(query, retrieval_result, conversation_context)
     
     def _cache_response(self, query: str, intent_result: IntentClassificationResult, 
                        retrieval_result: Dict[str, Any], response: str):
@@ -2763,110 +2764,48 @@ class OptimizedResponseGenerator:
         return hashlib.md5("|".join(key_components).encode()).hexdigest()
     
     def _generate_dynamic_response(self, query: str, intent_result: IntentClassificationResult,
-                     retrieval_result: Dict[str, Any], 
-                     conversation_context: Optional[List[ConversationTurn]] = None) -> str:
-        """Universal semantic response generation with intelligent content structuring"""
+                 retrieval_result: Dict[str, Any], 
+                 conversation_context: Optional[List[ConversationTurn]] = None) -> str:
+    
+        documents = retrieval_result.get("documents", [])
+        has_database_results = (retrieval_result.get("success") and documents and len(documents) > 0)
         
-        prompt_parts = []
+        # Database-first logic with fallbacks
+        if has_database_results and self._has_sufficient_content(documents, query):
+            # Sufficient internal data - use database only
+            return self._generate_styled_database_response(query, retrieval_result, conversation_context)
         
-        # System instruction with formatting capability
-        prompt_parts.append(
-            "You are a professional Swiss banking assistant with advanced content structuring capabilities. "
-            "Analyze user queries semantically and provide well-formatted, comprehensive responses."
-        )
+        elif has_database_results and self._has_minimal_content(documents, query):
+            # Minimal internal data - combine with Claude knowledge
+            return self._generate_hybrid_response(query, retrieval_result, conversation_context)
         
-        # Enhanced semantic analysis instruction
-        prompt_parts.append(
-            "SEMANTIC CONTENT ANALYSIS:\n"
-            "1. Understand the user's specific information need\n"
-            "2. Extract relevant information from context documents\n"
-            "3. Structure the response appropriately:\n"
-            "   - Project descriptions: Summary + key features in bullets\n"
-            "   - Project lists: Clear categorization with status\n"
-            "   - Detailed explanations: Heading, description, features, objectives\n"
-            "   - Status reasons: Extract explicit reasons from context\n"
-            "4. Use proper formatting: headings, bullet points, paragraphs as appropriate"
-        )
-
-        # Add conversation context if available
-        if conversation_context and len(conversation_context) > 1:
-            context_summary = self._build_conversation_context_summary(conversation_context)
-            prompt_parts.append(f"Recent conversation context:\n{context_summary}")
-
-        # Enhanced document processing with structure awareness
-        has_relevant_context = False
-        if retrieval_result.get("success") and retrieval_result.get("documents"):
-            docs = retrieval_result["documents"]
-            
-            # Apply intelligent content filtering based on query
-            if hasattr(self, '_classify_query_structure_needs'):
-                structure_need = self._classify_query_structure_needs(query)
-                docs = self._prepare_documents_for_structure(docs, structure_need)
-            
-            context_parts = []
-            for i, doc in enumerate(docs[:8], 1):
-                content = doc.get("content", "")
-                source = doc.get("source_file", "Unknown")
-                
-                # Preserve more content for better extraction
-                if len(content) > 1500:
-                    content = content[:1500] + "..."
-                
-                context_parts.append(f"Document {i} ({source}):\n{content}")
-                has_relevant_context = True
-            
-            if context_parts:
-                prompt_parts.append(f"Context Documents:\n\n" + "\n\n".join(context_parts))
-
-        # Add the user's query
-        prompt_parts.append(f"User's Question: {query}")
+        elif self._is_internal_business_question(query):
+            # Internal question but no database results
+            return "📋 **No Information Available**\n\nI don't have specific information about this in our internal database. Please contact the relevant department for more details."
         
-        # Enhanced response strategy with formatting instructions
-        if has_relevant_context:
-            prompt_parts.append(
-                "RESPONSE GENERATION STRATEGY:\n"
-                "1. CONTENT EXTRACTION: Extract specific information requested by user\n"
-                "2. SEMANTIC UNDERSTANDING: Interpret terms correctly (e.g., 'incomplete' = not completed)\n"
-                "3. INTELLIGENT STRUCTURING:\n"
-                "   - For project descriptions: Use ## headings, bullet points for features\n"
-                "   - For project lists: Group by status, show key details\n"
-                "   - For specific project details: Full description + features + objectives\n"
-                "   - Extract explicit reasons, team members, objectives from context\n"
-                "4. FORMATTING: Use markdown formatting for clear structure\n"
-                "5. COMPLETENESS: Provide comprehensive information without irrelevant details"
-            )
         else:
-            prompt_parts.append(
-                "No specific context documents found. Use your general banking/fintech knowledge "
-                "to provide a helpful response with proper formatting and structure."
-            )
+            # General question - use Claude knowledge
+            return self._generate_styled_general_response(query)
         
-        full_prompt = "\n\n".join(prompt_parts)
-        
-        # Generate response
-        try:
-            if not self.claude_client:
-                return self._generate_fallback_response(query, intent_result, retrieval_result)
-            
-            response = self.claude_client.messages.create(
-                model="claude-3-5-haiku-20241022",
-                max_tokens=1500,  # Increased for structured responses
-                temperature=0.1,
-                messages=[{"role": "user", "content": full_prompt}]
-            )
-            
-            response_text = ""
-            for block in response.content:
-                if hasattr(block, 'text'):
-                    response_text += block.text
-                elif isinstance(block, str):
-                    response_text += block
-            
-            return response_text.strip()
-            
-        except Exception as e:
-            logger.error(f"Claude API error: {e}")
-            return self._generate_fallback_response(query, intent_result, retrieval_result)
+    def _has_sufficient_content(self, documents: List[Dict], query: str) -> bool:
+        """Check if database has sufficient content to answer the query"""
+        total_content_length = sum(len(doc.get("content", "")) for doc in documents)
+        return total_content_length > 500  # Sufficient content threshold
+
+    def _has_minimal_content(self, documents: List[Dict], query: str) -> bool:
+        """Check if database has minimal but relevant content"""
+        total_content_length = sum(len(doc.get("content", "")) for doc in documents)
+        return 100 < total_content_length <= 500  # Minimal content range
+
+    def _is_internal_business_question(self, query: str) -> bool:
+        """Determine if this is an internal business question"""
+        query_lower = query.lower()
+        internal_indicators = [
+            "our projects", "current projects", "what projects", "project status",
+            "our company", "our systems", "our process", "our policy", 
+            "internal", "company", "organization", "team", "department"
+        ]
+        return any(indicator in query_lower for indicator in internal_indicators)
 
     def _classify_query_structure_needs(self, query: str) -> str:
         """Classify what type of structured response is needed"""
@@ -3055,98 +2994,166 @@ class OptimizedResponseGenerator:
         
         return response
     
-    def _generate_fallback_response(self, query: str, intent_result: IntentClassificationResult,
-                              retrieval_result: Dict[str, Any]) -> str:
-        """Dynamic fallback response without hardcoded templates"""
+    def _generate_styled_database_response(self, query: str, retrieval_result: Dict[str, Any], 
+                                     conversation_context: Optional[List[ConversationTurn]] = None) -> str:
+        """Generate styled response from database content only"""
         
-        if not retrieval_result.get("success") or not retrieval_result.get("documents"):
-            return f"I don't have specific information available to answer your question. Please contact the relevant department for more details."
+        documents = retrieval_result.get("documents", [])
         
-        docs = retrieval_result.get("documents", [])
+        # Enhanced prompt with styling instructions
+        combined_content = self._prepare_documents_for_claude(documents)
         
-        # Use AI to structure the response if available
-        if self.claude_client:
-            try:
-                # Combine document content
-                content_blocks = []
-                for doc in docs[:5]:
-                    content = doc.get("content", "")
-                    source = doc.get("source_file", "Unknown")
-                    title = doc.get("title") or doc.get("metadata", {}).get("title", "")
-                    status = doc.get("status") or doc.get("metadata", {}).get("status", "")
-                    
-                    if content:
-                        doc_info = f"Source: {source}"
-                        if title and title != "Unknown":
-                            doc_info += f"\nTitle: {title}"
-                        if status and status != "unknown":
-                            doc_info += f"\nStatus: {status}"
-                        doc_info += f"\nContent: {content}"
-                        content_blocks.append(doc_info)
-                
-                combined_content = "\n\n---\n\n".join(content_blocks)
-                
-                prompt = f"""Based on these documents, provide a structured response to: "{query}"
+        prompt = f"""Based ONLY on these internal documents, answer: "{query}"
 
     Documents:
     {combined_content}
 
-    Instructions:
-    1. Extract and organize all relevant information
-    2. If multiple items are mentioned, list them all with their details
-    3. Use clear formatting with proper titles and status information
-    4. Don't use placeholder text like 'Untitled' or 'unknown'
-    5. Present information in a logical, easy-to-read structure
+    FORMATTING REQUIREMENTS:
+    1. Use proper markdown formatting with headers (##), subheaders (###), bullet points (*)
+    2. Add relevant emojis to section headers based on content context
+    3. Maintain proper numbering (1., 2., 3.) for lists
+    4. Use **bold** for important terms and project names
+    5. Structure content logically with clear sections
+    6. SHOW ALL relevant information - do not truncate or limit
+
+    Example structure:
+    ## 📊 [Main Header with relevant emoji]
+    ### 🔹 [Subheader]
+    1. **Project Name**
+    - Status: [status]
+    - Description: [description]
+    * Key features or details
+    * Additional information
 
     Response:"""
 
-                response = self.claude_client.messages.create(
-                    model="claude-3-5-haiku-20241022",
-                    max_tokens=1500,
-                    temperature=0.1,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                
-                structured_response = "".join([
-                    block.text for block in response.content 
-                    if hasattr(block, 'text')
-                ])
-                
-                if structured_response.strip():
-                    # Add sources
-                    sources = list(set([doc.get("source_file", "Unknown") for doc in docs if doc.get("source_file") != "Unknown"]))
-                    if sources:
-                        structured_response += f"\n\n**Sources:** {', '.join(sources)}"
-                    return structured_response.strip()
-                    
-            except Exception as e:
-                logger.warning(f"AI response generation failed: {e}")
+        try:
+            if not self.claude_client:
+                return ""
+            response = self.claude_client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=3000,  # Increased token limit
+                temperature=0.1,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            styled_response = "".join([
+                block.text for block in response.content 
+                if hasattr(block, 'text')
+            ])
+            
+            # Add sources
+            sources = list(set([doc.get("source_file", "Unknown") for doc in documents 
+                            if doc.get("source_file") != "Unknown"]))
+            if sources:
+                styled_response += f"\n\n📋 **Sources:** {', '.join(sources)}"
+            
+            return styled_response.strip()
+            
+        except Exception as e:
+            logger.warning(f"Styled response generation failed: {e}")
+            return self._simple_styled_fallback(documents)
+
+    def _generate_hybrid_response(self, query: str, retrieval_result: Dict[str, Any], 
+                                conversation_context: Optional[List[ConversationTurn]] = None) -> str:
+        """Generate response combining minimal database content with Claude knowledge"""
         
-        # Fallback: Simple content presentation
-        response_parts = []
-        for i, doc in enumerate(docs, 1):
-            content = doc.get("content", "").strip()
-            source = doc.get("source_file", "Document")
+        documents = retrieval_result.get("documents", [])
+        database_content = self._prepare_documents_for_claude(documents)
+        
+        prompt = f"""Answer this query: "{query}"
+
+    Available internal data:
+    {database_content}
+
+    Instructions:
+    1. Start with the internal data provided above
+    2. Add relevant general knowledge to provide a complete answer
+    3. Use proper markdown formatting with emojis and clear structure
+    4. Clearly indicate what comes from internal data vs general knowledge
+    5. Maintain professional business context
+
+    Response:"""
+
+        try:
+            if not self.claude_client:
+                return ""
+            response = self.claude_client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=3000,
+                temperature=0.2,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            hybrid_response = "".join([
+                block.text for block in response.content 
+                if hasattr(block, 'text')
+            ])
+            
+            return hybrid_response.strip()
+            
+        except Exception as e:
+            return f"## ⚠️ **Limited Information**\n\nI have minimal information in our database. Please contact the relevant department for complete details."
+
+    def _generate_styled_general_response(self, query: str) -> str:
+        """Generate styled response using Claude's general knowledge"""
+        
+        prompt = f"""Answer this general question: "{query}"
+
+    Requirements:
+    1. Use professional business context
+    2. Apply proper markdown formatting with emojis
+    3. Structure with clear headers and bullet points
+    4. Keep response comprehensive but concise
+
+    Response:"""
+
+        try:
+            if not self.claude_client:
+                return ""
+            response = self.claude_client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=2000,
+                temperature=0.2,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            general_response = "".join([
+                block.text for block in response.content 
+                if hasattr(block, 'text')
+            ])
+            
+            return f"{general_response}\n\n💡 *Note: This response is based on general knowledge, not our internal systems.*"
+            
+        except Exception as e:
+            return "## ❓ **Information Request**\n\nI can provide information from our internal database. For general inquiries, please contact the appropriate department."
+
+    def _prepare_documents_for_claude(self, documents: List[Dict]) -> str:
+        """Prepare documents for Claude processing"""
+        content_blocks = []
+        for i, doc in enumerate(documents[:6], 1):  # Limit to 6 docs to avoid token issues
+            content = doc.get("content", "")
+            source = doc.get("source_file", "Unknown")
             title = doc.get("title") or doc.get("metadata", {}).get("title", "")
-            status = doc.get("status") or doc.get("metadata", {}).get("status", "")
             
             if content:
+                doc_info = f"Document {i} - Source: {source}"
                 if title and title not in ["Untitled", "Unknown", ""]:
-                    response_parts.append(f"**{title}**")
-                if status and status not in ["unknown", "Unknown", ""]:
-                    response_parts.append(f"Status: {status}")
-                response_parts.append(f"From {source}:")
-                response_parts.append(content)
-                response_parts.append("")  # Empty line
+                    doc_info += f" | Title: {title}"
+                doc_info += f"\nContent: {content}"
+                content_blocks.append(doc_info)
         
-        response = "\n".join(response_parts) if response_parts else "No relevant information found."
+        return "\n\n---\n\n".join(content_blocks)
+
+    def _simple_styled_fallback(self, documents: List[Dict]) -> str:
+        """Simple styled fallback when Claude processing fails"""
+        response_parts = []
+        for i, doc in enumerate(documents, 1):
+            content = doc.get("content", "").strip()
+            if content:
+                response_parts.append(f"## 📋 Document {i}\n{content}")
         
-        # Add sources
-        sources = list(set([doc.get("source_file", "Unknown") for doc in docs if doc.get("source_file") != "Unknown"]))
-        if sources:
-            response += f"\n\n**Sources:** {', '.join(sources)}"
-        
-        return response
+        return "\n\n".join(response_parts) if response_parts else "No relevant information found."
 
 # ===== MAIN OPTIMIZED SWISS AGENT =====
 
@@ -3240,6 +3247,7 @@ class OptimizedSwissAgent:
 
     def _get_comprehensive_documents(self, query: str, intent_result: IntentClassificationResult) -> Dict[str, Any]:
         """Enhanced document retrieval with project-aware processing"""
+        logger.info(f"RAG service available: {hasattr(self.rag_system, 'rag_service') and self.rag_system.rag_service is not None}")
         
         query_words = len(query.split())
         semantic_instruction = getattr(intent_result, 'semantic_instruction', None)
@@ -3259,38 +3267,16 @@ class OptimizedSwissAgent:
         if (hasattr(self.rag_system, 'rag_service') and 
             self.rag_system.rag_service is not None):
             
-            # Try project-aware query first if available
-            if hasattr(self.rag_system.rag_service, 'query_documents_with_project_awareness'):
-                try:
-                    retrieval_result = self.rag_system.rag_service.query_documents_with_project_awareness(
-                        enhanced_query, top_k=top_k
-                    )
-                    retrieval_result["method"] = "project_aware"
-                    return retrieval_result
-                except Exception as e:
-                    logger.warning(f"Project-aware query failed: {e}")
-            
-            # Fallback to standard query_documents method
-            if hasattr(self.rag_system.rag_service, 'query_documents'):
-                try:
-                    retrieval_result = self.rag_system.rag_service.query_documents(
-                        enhanced_query, top_k=top_k
-                    )
-                    retrieval_result["method"] = "standard"
-                    return retrieval_result
-                except Exception as e:
-                    logger.warning(f"Standard RAG query failed: {e}")
-        
-        # Try parallel retrieval method if available
-        if hasattr(self.rag_system, 'retrieve_documents_parallel'):
+            # DIRECT CALL - no complicated logic
             try:
-                retrieval_result = self.rag_system.retrieve_documents_parallel(
-                    enhanced_query, intent_result.processing_strategy, top_k=top_k
+                retrieval_result = self.rag_system.rag_service.query_documents(
+                    query, top_k=top_k  # Use original query, not enhanced
                 )
-                retrieval_result["method"] = "parallel"
+                retrieval_result["method"] = "direct_rag"
+                logger.info(f"RAG retrieved {len(retrieval_result.get('documents', []))} documents")
                 return retrieval_result
             except Exception as e:
-                logger.warning(f"Parallel retrieval failed: {e}")
+                logger.error(f"RAG query failed: {e}")
         
         # Final fallback - return empty result
         logger.error("All document retrieval methods failed or RAG service not initialized")

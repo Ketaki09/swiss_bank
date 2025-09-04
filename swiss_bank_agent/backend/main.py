@@ -20,6 +20,8 @@ import uuid
 import logging
 from twilio.rest import Client
 import time
+import logging
+logger = logging.getLogger(__name__)
 
 from models.complaint_models import ComplaintResponse, ComplaintStatus
 from services.database_service import DatabaseService
@@ -44,7 +46,7 @@ from internal_agent.optimized_swiss_agent import (
     OptimizedSwissAgent,
     initialize_claude_client
 )
-
+from internal_agent.rag_service import AnthropicContextualRAGService
 from pydantic import BaseModel
 from enum import Enum
 
@@ -461,10 +463,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"⚠️ Configuration indexes creation failed: {e}")
 
-       # STEP 5: Initialize OptimizedSwissAgent instead of enhanced swiss agent
+       # STEP 5: Initialize OptimizedSwissAgent - UPDATED SECTION
         try:
             # Initialize Claude client for the optimized agent
             claude_client = initialize_claude_client()
+            print("\n")
             
             # Create optimized Swiss Agent with all enhanced features
             services["swiss_agent"] = create_swiss_agent_with_sessions(
@@ -474,7 +477,24 @@ async def lifespan(app: FastAPI):
                 enable_multi_user=True
             )
             print("✅ Swiss Agent Service initialized")
-
+            
+            # CRITICAL FIX: Ensure RAG service is properly connected
+            if services["swiss_agent"] and services["swiss_agent"].rag_system:
+                try:
+                    # Force initialize the RAG service if it's None
+                    if not services["swiss_agent"].rag_system.rag_service:
+                        from internal_agent.rag_service import AnthropicContextualRAGService
+                        services["swiss_agent"].rag_system.rag_service = AnthropicContextualRAGService(
+                            chroma_db_path="./chroma_db",
+                            collection_name="contextual_documents",
+                            quiet_mode=True
+                        )
+                        print("✅ RAG service manually connected to Swiss Agent")
+                    else:
+                        print("✅ RAG service already connected")
+                except Exception as rag_error:
+                    print(f"⚠️ RAG service connection failed: {rag_error}")
+            
             if claude_client and services["swiss_agent"]:
                 services["swiss_agent"].intent_classifier.guardrails.set_expert_client(claude_client)
                 print("✅ AI-powered banking guardrails expert initialized")
@@ -594,7 +614,7 @@ app = FastAPI(
 # CORS middleware for frontend integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8080", "http://localhost:8001", "http://localhost:3000", "http://localhost:4173", "http://localhost:8000"],  
+    allow_origins=["http://3.235.11.208/", "http://localhost:8080", "http://localhost:8001", "http://localhost:3000", "http://localhost:4173", "http://localhost:8000"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -624,13 +644,26 @@ def get_triage_service() -> TriageAgentService:
     return services["triage"]
 
 def get_swiss_agent() -> OptimizedSwissAgent:
-    """Get Optimized Swiss Agent service - UPDATED"""
+    """Get Optimized Swiss Agent service with proper RAG integration"""
     swiss_agent = services.get("swiss_agent")
     if not swiss_agent:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Swiss Agent service not available"
         )
+    
+    # ENSURE RAG service is properly connected
+    if not hasattr(swiss_agent.rag_system, 'rag_service') or swiss_agent.rag_system.rag_service is None:
+        # Re-initialize RAG connection if missing
+        try:
+            
+            swiss_agent.rag_system.rag_service = AnthropicContextualRAGService(
+                chroma_db_path="./chroma_db",
+                quiet_mode=True
+            )
+        except Exception as e:
+            logger.warning(f"Could not reconnect RAG service: {e}")
+    
     return swiss_agent
 
 async def get_current_user(
@@ -2258,7 +2291,115 @@ async def get_swiss_agent_history(
     except Exception as e:
         logging.error(f"Error fetching history: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/api/swiss-agent/test-comprehensive-retrieval")
+async def test_comprehensive_retrieval(
+    query: str = Form(...),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    try:
+        # Method exists but not directly testable
+        intent_result = swiss_agent.intent_classifier.classify_intent(query)
+        retrieval_result = swiss_agent._get_comprehensive_documents(query, intent_result)
+        
+        return {
+            "query": query,
+            "retrieval_method": retrieval_result.get("method", "unknown"),
+            "documents_found": len(retrieval_result.get("documents", [])),
+            "retrieval_success": retrieval_result.get("success", False),
+            "processing_strategy": intent_result.processing_strategy
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Comprehensive retrieval test failed")
+
+@app.get("/api/swiss-agent/test-enhanced-memory")
+async def test_enhanced_memory_features(
+    user_id: str = "test_user",
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    try:
+        memory = swiss_agent.intent_classifier.conversation_memory
+        
+        # Test enhanced memory features
+        return {
+            "enhanced_memory_active": isinstance(memory, type(memory)) and hasattr(memory, 'topic_threads'),
+            "topic_threads_count": len(memory.topic_threads) if hasattr(memory, 'topic_threads') else 0,
+            "entity_mentions_count": len(memory.entity_mentions) if hasattr(memory, 'entity_mentions') else 0,
+            "banking_topics_detected": list(memory.banking_topics.keys()) if hasattr(memory, 'banking_topics') else [],
+            "memory_type": "EnhancedConversationMemory" if hasattr(memory, 'topic_threads') else "BasicMemory"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Enhanced memory test failed")
+
+@app.get("/api/swiss-agent/test-db")
+async def test_database_query(swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)):
+    """Quick test to see if database has project data"""
+    try:
+        if hasattr(swiss_agent.rag_system, 'rag_service') and swiss_agent.rag_system.rag_service:
+            result = swiss_agent.rag_system.rag_service.query_documents("projects in progress", top_k=5)
+            return {
+                "success": result.get("success", False),
+                "documents_count": len(result.get("documents", [])),
+                "first_doc_content": result.get("documents", [{}])[0].get("content", "No content")[:300] if result.get("documents") else "No documents"
+            }
+        else:
+            return {"error": "RAG service not connected"}
+    except Exception as e:
+        return {"error": str(e)}
     
+@app.get("/api/swiss-agent/debug-query")
+async def debug_swiss_agent_query(
+    query: str = "What projects are completed?",
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Debug endpoint to test Swiss Agent RAG integration"""
+    try:
+        rag_status = {}
+        rag_status["rag_system_exists"] = hasattr(swiss_agent, 'rag_system')
+        rag_status["rag_service_exists"] = (hasattr(swiss_agent.rag_system, 'rag_service') 
+                                          if hasattr(swiss_agent, 'rag_system') else False)
+        
+        # ADD: Check for project-aware method
+        if rag_status["rag_service_exists"] and swiss_agent.rag_system.rag_service:
+            rag_status["project_aware_method"] = hasattr(
+                swiss_agent.rag_system.rag_service, 'query_documents_with_project_awareness'
+            )
+            
+        debug_info = {
+            "query": query,
+            "swiss_agent_exists": swiss_agent is not None,
+            "rag_system_exists": False,
+            "rag_service_exists": False,
+            "rag_service_is_none": True,
+            "rag_service_type": "None",
+            "error": None
+        }
+        
+        if swiss_agent is not None:
+            debug_info["rag_system_exists"] = hasattr(swiss_agent, 'rag_system')
+            
+            if hasattr(swiss_agent, 'rag_system'):
+                debug_info["rag_service_exists"] = hasattr(swiss_agent.rag_system, 'rag_service')
+                
+                if hasattr(swiss_agent.rag_system, 'rag_service'):
+                    rag_service = swiss_agent.rag_system.rag_service
+                    debug_info["rag_service_is_none"] = rag_service is None
+                    debug_info["rag_service_type"] = str(type(rag_service))
+                    
+                    # Only try to call methods if rag_service is not None
+                    if rag_service is not None:
+                        try:
+                            result = rag_service.query_documents(query, top_k=3)
+                            debug_info["query_success"] = result.get("success", False)
+                            debug_info["documents_found"] = len(result.get("documents", []))
+                        except Exception as query_error:
+                            debug_info["query_error"] = str(query_error)
+        
+        return debug_info
+        
+    except Exception as e:
+        return {"error": str(e), "query": query}
+       
 @app.delete("/api/swiss-agent/history")
 async def clear_swiss_agent_history(
     user_id: Optional[str] = None,
@@ -2445,6 +2586,64 @@ async def test_semantic_understanding(
     except Exception as e:
         logging.error(f"Error testing semantic understanding: {str(e)}")
         raise HTTPException(status_code=500, detail="Semantic understanding test failed")
+
+@app.post("/api/swiss-agent/run-benchmark")
+async def run_performance_benchmark(
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    try:
+        from internal_agent.optimized_swiss_agent import PerformanceBenchmark
+        
+        benchmark = PerformanceBenchmark(swiss_agent)
+        results = await benchmark.run_performance_benchmark()
+        
+        return {
+            "success": True,
+            "benchmark_results": results
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Benchmark failed")
+
+@app.post("/api/swiss-agent/enhance-query")
+async def enhance_query_dynamic(
+    query: str = Form(...),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    try:
+        # Method exists but not exposed via API
+        intent_result = swiss_agent.intent_classifier.classify_intent(query)
+        enhanced_query = swiss_agent._enhance_query_dynamically(query, intent_result)
+        
+        return {
+            "original_query": query,
+            "enhanced_query": enhanced_query,
+            "enhancement_applied": enhanced_query != query
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Query enhancement failed")
+
+@app.post("/api/swiss-agent/resolve-references")
+async def resolve_references(
+    message: str = Form(...),
+    user_id: Optional[str] = Form(None),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    try:
+        # Get conversation context
+        user_id = user_id or "default_employee_session"
+        conversation_context = swiss_agent.intent_classifier.conversation_memory.get_context_window()
+        
+        # Method exists but not exposed
+        resolved_message = swiss_agent.resolve_references_with_ai(message, conversation_context)
+        
+        return {
+            "original_message": message,
+            "resolved_message": resolved_message,
+            "references_resolved": resolved_message != message
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Reference resolution failed")
+    
 
 @app.post("/api/swiss-agent/test-content-structuring")
 async def test_content_structuring(

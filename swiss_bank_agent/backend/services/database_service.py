@@ -20,8 +20,8 @@ class DatabaseService:
         self.temp_data_collection: Optional[AsyncIOMotorCollection] = None
         
         # MongoDB connection string - update with your credentials
-        self.connection_string = os.getenv("MONGODB_URL", "mongodb://localhost:27017/")
-        self.database_name = os.getenv("DB_NAME", "swiss_bank")
+        self.connection_string = os.getenv("MONGODB_CONNECTION_STRING", "mongodb://localhost:27017/")
+        self.database_name = os.getenv("MONGODB_DATABASE_NAME", "swiss_bank")
 
     def _check_connection(self) -> bool:
         return (
@@ -636,8 +636,6 @@ class DatabaseService:
             await config_col.create_index([("active", ASCENDING)])
             await config_col.create_index([("version", DESCENDING)])
             await config_col.create_index([("created_at", DESCENDING)])
-            
-            print("✅ Realistic timelines configuration indexes created successfully")
             
         except Exception as e:
             print(f"❌ Error creating timelines config indexes: {e}")
