@@ -53,9 +53,18 @@ SwissBank/                                    # Project root folder
 │   │   └── main.py                           # FastAPI application entry point
 │   │    
 │   ├── data/                                 # Data generation and storage
+│   │   ├── documents/ 
+│   │   │   ├── bm25_index.json
+│   │   │   ├── contextual_cache.json
+│   │   │   ├── Fintech_intake.docx
+│   │   │   ├── processing__log.json
+│   │   │   ├── processing__stats.json
+│   │   │   ├── versions__log.json
+│   │   │ 
 │   │   ├── sample_data/                      # Sample data files (OPTIONAL)
 │   │   │   ├── complaints.json
 │   │   │   └── customers.json
+│   │   │ 
 │   │   ├── data_generator.py
 │   │   └── data_validator.ipynb
 │   │   

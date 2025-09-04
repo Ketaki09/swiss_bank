@@ -36,7 +36,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
     const interval = setInterval(() => {
       index = (index + 1) % typingTexts.length;
       setCurrentTypingText(typingTexts[index]);
-    }, 2000); // Change every 2 seconds
+    }, 5000); // Change every 5 seconds
 
     return () => clearInterval(interval);
   }, [isTyping]);

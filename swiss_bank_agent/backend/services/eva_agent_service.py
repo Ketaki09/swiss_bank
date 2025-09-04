@@ -351,8 +351,8 @@ class EvaAgentService:
                 self.realistic_timelines = self._get_fallback_timelines()
                 return
             
-            # Load realistic timelines from database
-            self.realistic_timelines = await self.database_service.get_realistic_timelines()
+            # FIXED: Remove await since get_realistic_timelines() is synchronous
+            self.realistic_timelines = self.database_service.get_realistic_timelines()
             print(f"✅ Loaded realistic timelines from database: {len(self.realistic_timelines)} categories")
             
         except Exception as e:

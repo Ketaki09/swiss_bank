@@ -1,20 +1,20 @@
 {
   "last_run": {
-    "timestamp": "2025-09-03T15:32:48.467027",
-    "files_processed": 1,
+    "timestamp": "2025-09-04T20:00:47.512310",
+    "files_processed": 0,
     "files_skipped": 0,
     "files_overwritten": 0,
-    "files_with_errors": 0,
-    "contextual_enhancements": 1,
-    "processing_time_seconds": 58.231557846069336,
+    "files_with_errors": 1,
+    "contextual_enhancements": 0,
+    "processing_time_seconds": 97.5189561843872,
     "duplicate_mode": "skip",
     "chunking_strategy": "semantic",
     "retrieval_strategy": "contextual_hybrid"
   },
   "totals": {
-    "total_files_processed": 1,
-    "total_contextual_enhancements": 1,
+    "total_files_processed": 0,
+    "total_contextual_enhancements": 0,
     "total_processing_runs": 1,
-    "total_processing_time": 58.231557846069336
+    "total_processing_time": 97.5189561843872
   }
 }

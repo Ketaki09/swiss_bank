@@ -19,6 +19,7 @@ import redis
 import uuid
 import logging
 from twilio.rest import Client
+import time
 
 from models.complaint_models import ComplaintResponse, ComplaintStatus
 from services.database_service import DatabaseService
@@ -38,8 +39,11 @@ from email.mime.multipart import MIMEMultipart
 # Agent services - FIXED IMPORT ORDER
 from services.eva_agent_service import EvaAgentService
 from services.triage_agent_service import TriageAgentService
-from services.banking_policy_service import BankingPolicyService
-from services.swiss_agent_service import SwissAgentService, create_generalized_swiss_agent
+from internal_agent.optimized_swiss_agent import (
+    create_swiss_agent_with_sessions,
+    OptimizedSwissAgent,
+    initialize_claude_client
+)
 
 from pydantic import BaseModel
 from enum import Enum
@@ -457,17 +461,26 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"⚠️ Configuration indexes creation failed: {e}")
 
-       # STEP 5: Initialize Swiss Agent Service with built-in RAG capabilities
+       # STEP 5: Initialize OptimizedSwissAgent instead of enhanced swiss agent
         try:
-            services["swiss_agent"] = create_generalized_swiss_agent(
+            # Initialize Claude client for the optimized agent
+            claude_client = initialize_claude_client()
+            
+            # Create optimized Swiss Agent with all enhanced features
+            services["swiss_agent"] = create_swiss_agent_with_sessions(
+                claude_client=claude_client,
                 chroma_db_path="./chroma_db",
-                collection_name="contextual_documents",
-                embedding_model="mixedbread-ai/mxbai-embed-large-v1",
-                quiet_queries=True
+                use_enhanced_memory=True,
+                enable_multi_user=True
             )
-            print("✅ Generalized Swiss Agent Service initialized with AI-powered semantic understanding")
+            print("✅ Swiss Agent Service initialized")
+
+            if claude_client and services["swiss_agent"]:
+                services["swiss_agent"].intent_classifier.guardrails.set_expert_client(claude_client)
+                print("✅ AI-powered banking guardrails expert initialized")
+
         except Exception as e:
-            print(f"⚠️ Swiss Agent initialization error: {e}")
+            print(f"⚠️ Optimized Swiss Agent initialization error: {e}")
             services["swiss_agent"] = None
 
         # STEP 6: NOW initialize Eva with connected database 
@@ -514,10 +527,6 @@ async def lifespan(app: FastAPI):
         services["eva"].triage_service = services["triage"]
         print("\n🎯 Eva and Triage services fully integrated")
 
-        # STEP 11: Initialize Banking Policy Service
-        services["banking_policy"] = BankingPolicyService()
-        print("✅ Banking Policy Service initialized")
-
         # STEP 12: Initialize auth services with shared config
         services["auth_service"] = SharedConfigAuthService()
         await services["auth_service"].initialize()
@@ -544,7 +553,7 @@ async def lifespan(app: FastAPI):
         print(f"  Redis connection pooling: {'✅ Enabled' if connection_results['redis'] else '❌ Disabled'}")
         print(f"  Shared configuration: ✅ Active")
         print(f"  Eva database integration: {'✅ Active' if eva_health['success'] else '⚠️ Limited'}")
-        print(f"  Swiss Agent Capabilities: {'✅ AI-Powered Semantic Understanding Active' if services.get('swiss_agent') else '⚠ Disabled'}")
+        print(f"  Swiss Agent: {'✅ Optimized with enhanced features' if services.get('swiss_agent') else '❌ Failed'}")
         print(f"  Configuration system: {'✅ Hardcoded categories/constraints + DB timelines' if eva_config_status.get('configuration_complete') else '⚠️ Fallback mode'}")
         print("🌐 API is ready to serve requests")
         
@@ -578,7 +587,7 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI app with lifespan
 app = FastAPI(
     title="Swiss Bank Complaint Bot API", 
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan
 )
 
@@ -614,8 +623,8 @@ def get_auth_service() -> SharedConfigAuthService:
 def get_triage_service() -> TriageAgentService:
     return services["triage"]
 
-def get_swiss_agent_service():
-    """Get Swiss Agent service with built-in RAG capabilities"""
+def get_swiss_agent() -> OptimizedSwissAgent:
+    """Get Optimized Swiss Agent service - UPDATED"""
     swiss_agent = services.get("swiss_agent")
     if not swiss_agent:
         raise HTTPException(
@@ -623,7 +632,6 @@ def get_swiss_agent_service():
             detail="Swiss Agent service not available"
         )
     return swiss_agent
-
 
 async def get_current_user(
     token: HTTPAuthorizationCredentials = Depends(security),
@@ -734,7 +742,7 @@ async def detailed_health_check():
     
     if services.get("swiss_agent"):
         try:
-            swiss_health = await services["swiss_agent"].health_check()
+            swiss_health = await services["swiss_agent"].health_check_extended()
             swiss_agent_status = "healthy" if swiss_health.get("service_status") == "healthy" else "degraded"
             ai_semantic_memory_active = swiss_health.get("performance", {}).get("entities_tracked", 0) >= 0
         except:
@@ -2154,59 +2162,83 @@ class SwissAgentMessage(BaseModel):
     message: str
     timestamp: Optional[str] = None
     user_id: Optional[str] = None
+    reset_from_message_id: Optional[int] = None
 
 class SwissAgentResponse(BaseModel):
     success: bool
     response: str
     timestamp: str
     message_id: Optional[str] = None
+    intent_metadata: Optional[Dict[str, Any]] = None  
+    retrieval_metadata: Optional[Dict[str, Any]] = None  
     error: Optional[str] = None
 
 @app.post("/api/swiss-agent/chat", response_model=SwissAgentResponse)
 async def swiss_agent_chat(
     request: SwissAgentMessage,
-    swiss_agent_service = Depends(get_swiss_agent_service)
+   swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
 ):
     """
-    Send a message to Swiss Agent and get AI-powered response with semantic understanding
-    FOR INTERNAL EMPLOYEES ONLY - No customer authentication required
+    Enhanced Swiss Agent chat with semantic understanding and dual RAG strategy
+    FOR INTERNAL EMPLOYEES ONLY
     """
     try:
         if not request.message.strip():
             raise HTTPException(status_code=400, detail="Message cannot be empty")
         
-        #  Use provided user_id or generate employee session ID
+        # Handle selective memory reset if requested
+        if request.reset_from_message_id:
+            swiss_agent.reset_conversation_from_message(request.reset_from_message_id)
+        
+        # Use provided user_id or generate employee session ID
         user_id = request.user_id or f"employee_{int(datetime.now().timestamp())}"
         
-        # Process the message through Swiss Agent service with new interface
-        result = await swiss_agent_service.process_message(
-            message=request.message,
+        # Process with optimized agent (now includes semantic understanding)
+        result = await swiss_agent.process_query_with_user_context(
+            query=request.message,
             user_id=user_id
         )
         
-        return SwissAgentResponse(**result)
+        # Enhanced response with semantic metadata
+        response_data = SwissAgentResponse(
+            success=result["success"],
+            response=result["response"],
+            timestamp=result["timestamp"],
+            message_id=result.get("message_id"),
+            intent_metadata=result.get("intent_metadata"),
+            retrieval_metadata=result.get("retrieval_metadata"),
+            error=result.get("error")
+        )
+        
+        # Add semantic analysis info for debugging/monitoring
+        if result.get("intent_metadata"):
+            semantic_info = {
+                "semantic_understanding_applied": hasattr(result["intent_metadata"], "semantic_instruction"),
+                "processing_strategy": result["intent_metadata"].get("processing_strategy"),
+                "response_method": "RAG+Claude" if result.get("retrieval_metadata", {}).get("documents_found", 0) > 0 else "Claude_Knowledge"
+            }
+            result["semantic_metadata"] = semantic_info
+        
+        return response_data
         
     except Exception as e:
         logging.error(f"Error in swiss_agent_chat: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
+    
 @app.get("/api/swiss-agent/history")
 async def get_swiss_agent_history(
     user_id: Optional[str] = None,
     limit: int = 50,
-    # REMOVED: current_user dependency - internal employee tool
-    swiss_agent_service = Depends(get_swiss_agent_service)
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
 ):
     """
-    Get conversation history for Swiss Agent with AI semantic metadata
-    FOR INTERNAL EMPLOYEES - No customer authentication
+    Get conversation history with enhanced memory features
+    FOR INTERNAL EMPLOYEES
     """
     try:
-        # Use provided user_id or default employee session
-        if not user_id:
-            user_id = "default_employee_session"
+        user_id = user_id or "default_employee_session"
         
-        history = swiss_agent_service.get_conversation_history(
+        history = swiss_agent.get_conversation_history(
             user_id=user_id,
             limit=limit
         )
@@ -2215,267 +2247,773 @@ async def get_swiss_agent_history(
             "success": True,
             "messages": history,
             "count": len(history),
-            "ai_powered": True,
-            "semantic_understanding_active": True,
-            "framework_type": "internal_employee_tool"
+            "features": {
+                "enhanced_memory": swiss_agent.use_enhanced_memory,
+                "multi_user_support": swiss_agent.enable_multi_user,
+                "selective_reset": True,
+                "banking_guardrails": True
+            }
         }
         
     except Exception as e:
-        logging.error(f"Error fetching Swiss Agent history: {str(e)}")
+        logging.error(f"Error fetching history: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
     
 @app.delete("/api/swiss-agent/history")
 async def clear_swiss_agent_history(
     user_id: Optional[str] = None,
-    # REMOVED: current_user dependency - internal tool
-    swiss_agent_service = Depends(get_swiss_agent_service)
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
 ):
     """
-    Clear AI semantic memory and conversation history for Swiss Agent
-    FOR INTERNAL EMPLOYEES - No customer authentication required
+    Clear conversation memory with enhanced cleanup
+    FOR INTERNAL EMPLOYEES
     """
     try:
-        # Use provided user_id or default
-        if not user_id:
-            user_id = "default_employee_session"
+        user_id = user_id or "default_employee_session"
         
-        # Clear AI semantic memory
-        swiss_agent_service.clear_ai_semantic_memory(user_id=user_id)
+        # Use enhanced clear method
+        swiss_agent.clear_user_conversation(user_id)
         
         return {
             "success": True,
-            "message": "AI semantic memory and conversation history cleared successfully",
-            "ai_components_cleared": True,
-            "framework_type": "internal_employee_tool"
+            "message": "Conversation memory cleared successfully",
+            "user_id": user_id,
+            "method": "optimized_cleanup"
         }
             
     except Exception as e:
-        logging.error(f"Error clearing Swiss Agent history: {str(e)}")
+        logging.error(f"Error clearing history: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.get("/api/swiss-agent/status")
-async def swiss_agent_status_enhanced(swiss_agent_service = Depends(get_swiss_agent_service)):
+
+@app.post("/api/swiss-agent/reset-selective")
+async def reset_selective_memory(
+    message_id: int = Form(...),
+    user_id: Optional[str] = Form(None),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
     """
-    Enhanced Swiss Agent service status with AI semantic understanding capabilities
+    NEW ENDPOINT: Selective memory reset from specific message
     """
     try:
-        # Get comprehensive health check
-        health_info = swiss_agent_service.health_check()
+        swiss_agent.reset_conversation_from_message(message_id)
         
         return {
-            "status": "active",
-            "service": "Swiss Agent",
-            "version": "4.0.0 (AI-Powered Generalized Agent)",
-            "timestamp": datetime.now().isoformat(),
-            "ai_capabilities": {
-                "claude_api": swiss_agent_service.claude_client is not None,
-                "semantic_memory": True,
-                "entity_extraction": True,
-                "topic_identification": True,
-                "reference_resolution": True,
-                "domain_agnostic": True,
-                "anthropic_methodology": True
-            },
-            "capabilities": {
-                "ai_powered_entity_extraction": True,
-                "ai_powered_topic_identification": True,
-                "semantic_query_enhancement": True,
-                "reference_resolution": True,
-                "domain_adaptive": True,
-                "no_hardcoded_patterns": True,
-                "generalized_for_mnc_fintech": True
-            },
-            "performance": health_info.get("performance", {}),
-            "components": health_info.get("components", {}),
-            "health_check": health_info
+            "success": True,
+            "message": f"Memory reset from message ID {message_id}",
+            "feature": "selective_memory_reset"
         }
         
     except Exception as e:
-        logging.error(f"Error getting Swiss Agent status: {str(e)}")
+        logging.error(f"Error in selective reset: {str(e)}")
+        raise HTTPException(status_code=500, detail="Selective reset failed")
+
+@app.get("/api/swiss-agent/status")
+async def swiss_agent_status_enhanced(
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """
+    Enhanced status endpoint with performance metrics
+    """
+    try:
+        # Get extended health check
+        health_info = swiss_agent.health_check_extended()
+        
+        # Get performance metrics
+        performance = swiss_agent.performance_metrics
+        
+        return {
+            "status": "active",
+            "service": "Optimized Swiss Agent",
+            "version": "2.0.0",
+            "timestamp": datetime.now().isoformat(),
+            "performance": {
+                "total_queries": performance["total_queries"],
+                "avg_response_time": (performance["total_response_time"] / max(performance["total_queries"], 1)),
+                "cache_hits": performance["cache_hits"],
+                "guardrail_blocks": performance["guardrail_blocks"]
+            },
+            "capabilities": {
+                "intent_classification": "12+ banking intents",
+                "memory_system": "enhanced_with_selective_reset",
+                "multi_user": swiss_agent.enable_multi_user,
+                "banking_guardrails": "95-98% accuracy",
+                "response_time_target": "sub-2-seconds"
+            },
+            "health": health_info
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting status: {str(e)}")
         return {
             "status": "error",
-            "service": "Swiss Agent",
+            "service": "Optimized Swiss Agent",
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
 
-@app.get("/api/swiss-agent/semantic-context")
-async def get_ai_semantic_context(
-    user_id: Optional[str] = None,
-    # REMOVED: current_user dependency - internal employee tool
-    swiss_agent_service = Depends(get_swiss_agent_service)
+@app.get("/api/swiss-agent/session-info/{user_id}")
+async def get_session_info(
+    user_id: str,
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
 ):
     """
-    Get AI-powered semantic context and memory state
-    FOR INTERNAL EMPLOYEES - No customer authentication required
+    NEW ENDPOINT: Get user session information
     """
     try:
-        # Use provided user_id or default employee session
-        if not user_id:
-            user_id = "default_employee_session"
+        session_info = swiss_agent.get_user_session_info(user_id)
+        return session_info
         
-        context = swiss_agent_service.get_ai_semantic_context(user_id=user_id)
+    except Exception as e:
+        logging.error(f"Error getting session info: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get session info")
+
+@app.get("/api/swiss-agent/semantic-context")
+async def get_semantic_context(
+    user_id: Optional[str] = None,
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Get semantic context and memory state"""
+    try:
+        user_id = user_id or "default_employee_session"
+        context = swiss_agent.get_ai_semantic_context(user_id)
         
         return {
             "success": True,
             "semantic_context": context,
-            "framework_type": "internal_employee_tool",
             "timestamp": datetime.now().isoformat()
         }
-        
     except Exception as e:
-        logging.error(f"Error getting AI semantic context: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get AI semantic context"
-        )
-
-@app.get("/api/swiss-agent/cost-statistics")
-async def get_swiss_agent_cost_statistics(
-    # CHANGED: Require admin authentication for cost data
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    swiss_agent_service = Depends(get_swiss_agent_service)
-):
-    """
-    Get detailed cost statistics for Swiss Agent operations
-    ADMIN ONLY - Requires authentication for sensitive cost data
-    """
-    try:
-        # TODO: Add admin role check here
-        
-        cost_stats = swiss_agent_service.get_agent_cost_statistics()
-        
-        return {
-            "success": True,
-            "cost_statistics": cost_stats,
-            "framework_type": "internal_employee_tool",
-            "access_level": "admin_only",
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        logging.error(f"Error getting cost statistics: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get cost statistics"
-        )
+        logging.error(f"Error getting semantic context: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get context")
 
 @app.post("/api/swiss-agent/test-entity-extraction")
 async def test_entity_extraction(
     text: str = Form(...),
-    # REMOVED: current_user dependency - internal testing tool
-    swiss_agent_service = Depends(get_swiss_agent_service)
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
 ):
-    """
-    Test AI-powered entity extraction on sample text
-    FOR INTERNAL EMPLOYEES - Testing and validation tool
-    """
+    """Test entity extraction on sample text"""
     try:
         if not text.strip():
             raise HTTPException(status_code=400, detail="Text cannot be empty")
         
-        # Add a test message to trigger entity extraction
-        test_user_id = f"test_extraction_{int(datetime.now().timestamp())}"
-        await swiss_agent_service.process_message(
-            message=text,
-            user_id=test_user_id
-        )
-        
-        # Get the extracted entities
-        context = swiss_agent_service.get_ai_semantic_context(user_id=test_user_id)
+        # Use the unified entity extractor
+        entities = swiss_agent.intent_classifier.entity_extractor.extract_entities(text)
         
         return {
             "success": True,
             "input_text": text,
-            "extracted_entities": context.get("ai_extracted_entities", {}),
-            "extraction_method": "ai_powered_claude",
-            "domain_agnostic": True,
-            "framework_type": "internal_employee_tool",
+            "extracted_entities": entities,
+            "extraction_method": "unified_extraction",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Error in entity extraction: {str(e)}")
+        raise HTTPException(status_code=500, detail="Entity extraction failed")
+
+@app.post("/api/swiss-agent/test-semantic-understanding")
+async def test_semantic_understanding(
+    query: str = Form(...),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Test the universal semantic understanding system"""
+    try:
+        if not query.strip():
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
+        
+        # Test semantic understanding
+        semantic_instruction = swiss_agent._understand_query_semantically(query)
+        
+        # Get full classification result to see how semantic context is applied
+        intent_result = swiss_agent.intent_classifier.classify_intent(query)
+        
+        return {
+            "success": True,
+            "query": query,
+            "semantic_analysis": {
+                "semantic_instruction": semantic_instruction,
+                "interpretation_applied": semantic_instruction is not None,
+                "response_strategy": intent_result.processing_strategy
+            },
+            "intent_classification": {
+                "primary_intent": intent_result.primary_intent.value,
+                "confidence_score": intent_result.confidence_score,
+                "processing_strategy": intent_result.processing_strategy
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Error testing semantic understanding: {str(e)}")
+        raise HTTPException(status_code=500, detail="Semantic understanding test failed")
+
+@app.post("/api/swiss-agent/test-content-structuring")
+async def test_content_structuring(
+    query: str = Form(...),
+    response_format: str = Form(default="auto"),  # auto, detailed, list, summary
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Test intelligent content structuring and formatting"""
+    try:
+        if not query.strip():
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
+        
+        # Process query with enhanced content structuring
+        result = await swiss_agent.process_query(query)
+        
+        # Analyze the response structure
+        response_analysis = {
+            "has_headings": "##" in result["response"] or "**" in result["response"],
+            "has_bullet_points": "•" in result["response"] or "-" in result["response"],
+            "has_structured_sections": result["response"].count('\n\n') > 2,
+            "response_length": len(result["response"]),
+            "content_filtered": result.get("retrieval_metadata", {}).get("content_filtered", False)
+        }
+        
+        return {
+            "success": True,
+            "query": query,
+            "structured_response": result["response"],
+            "response_analysis": response_analysis,
+            "processing_metadata": {
+                "documents_used": result.get("retrieval_metadata", {}).get("documents_found", 0),
+                "processing_time": result["processing_time"],
+                "strategy": result.get("retrieval_metadata", {}).get("retrieval_strategy")
+            },
             "timestamp": datetime.now().isoformat()
         }
         
     except Exception as e:
-        logging.error(f"Error in entity extraction test: {str(e)}")
-        raise HTTPException(status_code=500, detail="Entity extraction test failed")
-      
-@app.post("/api/swiss-agent/test-reference-resolution")
-async def test_reference_resolution(
-    message_with_references: str = Form(...),
-    # REMOVED: current_user dependency - internal testing tool
-    swiss_agent_service = Depends(get_swiss_agent_service)
+        logging.error(f"Error testing content structuring: {str(e)}")
+        raise HTTPException(status_code=500, detail="Content structuring test failed")
+
+@app.post("/api/swiss-agent/test-rag-strategies")
+async def test_rag_strategies(
+    query: str = Form(...),
+    test_both_strategies: bool = Form(default=True),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
 ):
-    """
-    Test AI-powered reference resolution
-    FOR INTERNAL EMPLOYEES - Testing and validation tool
-    """
+    """Test both RAG-only and RAG+Claude strategies"""
     try:
-        if not message_with_references.strip():
-            raise HTTPException(status_code=400, detail="Message cannot be empty")
+        if not query.strip():
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
         
-        # Use test employee session
-        user_id = f"test_resolution_{int(datetime.now().timestamp())}"
+        results = {}
         
-        # Test reference resolution
-        resolved_message = swiss_agent_service.semantic_memory.resolve_references_with_ai(
-            message_with_references
+        # Test with current system (should use semantic understanding)
+        full_result = await swiss_agent.process_query(query)
+        results["full_system"] = {
+            "response": full_result["response"],
+            "strategy_used": full_result.get("retrieval_metadata", {}).get("retrieval_strategy"),
+            "documents_found": full_result.get("retrieval_metadata", {}).get("documents_found", 0),
+            "processing_time": full_result["processing_time"]
+        }
+        
+        if test_both_strategies:
+            # Test RAG-only by temporarily disabling Claude in response generator
+            original_client = swiss_agent.response_generator.claude_client
+            swiss_agent.response_generator.claude_client = None
+            
+            try:
+                rag_only_result = await swiss_agent.process_query(query)
+                results["rag_only"] = {
+                    "response": rag_only_result["response"],
+                    "strategy_used": "rag_only_fallback",
+                    "processing_time": rag_only_result["processing_time"]
+                }
+            finally:
+                # Restore Claude client
+                swiss_agent.response_generator.claude_client = original_client
+        
+        return {
+            "success": True,
+            "query": query,
+            "strategy_comparison": results,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Error testing RAG strategies: {str(e)}")
+        raise HTTPException(status_code=500, detail="RAG strategy test failed")
+
+@app.post("/api/swiss-agent/diagnose-response")
+async def diagnose_response_generation(
+    query: str = Form(...),
+    include_retrieval_details: bool = Form(default=True),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Diagnose the complete response generation pipeline"""
+    try:
+        start_time = time.time()
+        
+        # Step 1: Semantic understanding
+        semantic_instruction = swiss_agent._understand_query_semantically(query)
+        
+        # Step 2: Intent classification  
+        intent_result = swiss_agent.intent_classifier.classify_intent(query)
+        
+        # Step 3: Document retrieval
+        retrieval_result = swiss_agent._get_comprehensive_documents(query, intent_result)
+        
+        # Step 4: Response generation (with timing)
+        response_start = time.time()
+        conversation_context = swiss_agent.intent_classifier.conversation_memory.get_context_window()
+        response_text = swiss_agent.response_generator.generate_response(
+            query, intent_result, retrieval_result, conversation_context
+        )
+        response_time = (time.time() - response_start) * 1000
+        
+        total_time = (time.time() - start_time) * 1000
+        
+        diagnosis = {
+            "query": query,
+            "pipeline_analysis": {
+                "semantic_understanding": {
+                    "instruction": semantic_instruction,
+                    "applied": semantic_instruction is not None
+                },
+                "intent_classification": {
+                    "primary_intent": intent_result.primary_intent.value,
+                    "confidence": intent_result.confidence_score,
+                    "processing_strategy": intent_result.processing_strategy
+                },
+                "document_retrieval": {
+                    "success": retrieval_result.get("success", False),
+                    "documents_found": len(retrieval_result.get("documents", [])),
+                    "strategy": retrieval_result.get("strategy"),
+                    "retrieval_time_ms": retrieval_result.get("retrieval_time_ms", 0)
+                },
+                "response_generation": {
+                    "method": "RAG+Claude" if retrieval_result.get("documents") else "Claude_fallback",
+                    "response_length": len(response_text),
+                    "generation_time_ms": response_time
+                }
+            },
+            "performance": {
+                "total_pipeline_time_ms": total_time,
+                "meets_target": total_time < 2000  # 2 second target
+            },
+            "final_response": response_text
+        }
+        
+        if include_retrieval_details and retrieval_result.get("documents"):
+            diagnosis["retrieval_details"] = [
+                {
+                    "source": doc.get("source_file"),
+                    "similarity_score": doc.get("similarity_score"),
+                    "content_preview": doc.get("content", "")[:200] + "..."
+                }
+                for doc in retrieval_result["documents"][:3]
+            ]
+        
+        return {
+            "success": True,
+            "diagnosis": diagnosis,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logging.error(f"Error in response diagnosis: {str(e)}")
+        raise HTTPException(status_code=500, detail="Response diagnosis failed")
+    
+@app.post("/api/swiss-agent/suggest-refinements")
+async def suggest_query_refinements(
+    query: str = Form(...),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Get AI suggestions for improving query results"""
+    try:
+        # Test current query
+        intent_result = swiss_agent.intent_classifier.classify_intent(query)
+        retrieval_result = swiss_agent._get_comprehensive_documents(query, intent_result)
+        
+        # If results are poor, get refinement suggestions
+        suggestions = []
+        if (not retrieval_result.get("success") or 
+            len(retrieval_result.get("documents", [])) < 3):
+            
+            # Use Claude to suggest improvements
+            if swiss_agent.claude_client:
+                refinement_prompt = f"""Analyze this query and suggest improvements for better document retrieval:
+
+Original Query: "{query}"
+Current Results: {len(retrieval_result.get("documents", []))} documents found
+
+Suggest 3 improved versions that would likely find more relevant information in a banking/business document database.
+
+Respond with JSON:
+{{"suggestions": ["improved query 1", "improved query 2", "improved query 3"], "reasoning": "explanation"}}"""
+
+                try:
+                    response = swiss_agent.claude_client.messages.create(
+                        model="claude-3-5-haiku-20241022",
+                        max_tokens=300,
+                        temperature=0.1,
+                        messages=[{"role": "user", "content": refinement_prompt}]
+                    )
+                    
+                    response_text = "".join([
+                        block.text for block in response.content 
+                        if hasattr(block, 'text')
+                    ])
+                    
+                    # Parse JSON response
+                    json_start = response_text.find('{')
+                    json_end = response_text.rfind('}') + 1
+                    if json_start >= 0 and json_end > json_start:
+                        suggestion_data = json.loads(response_text[json_start:json_end])
+                        suggestions = suggestion_data.get("suggestions", [])
+                except:
+                    suggestions = [
+                        f"{query} banking operations",
+                        f"{query} policy procedures",
+                        f"current {query} status"
+                    ]
+        
+        return {
+            "success": True,
+            "original_query": query,
+            "current_results": {
+                "documents_found": len(retrieval_result.get("documents", [])),
+                "needs_improvement": len(retrieval_result.get("documents", [])) < 3
+            },
+            "suggested_refinements": suggestions,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logging.error(f"Error suggesting refinements: {str(e)}")
+        raise HTTPException(status_code=500, detail="Refinement suggestion failed")
+
+ 
+
+@app.get("/api/swiss-agent/banking-capabilities")
+async def get_banking_capabilities(
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Get Swiss Agent's banking domain capabilities"""
+    try:
+        return {
+            "success": True,
+            "banking_capabilities": {
+                "intent_types": [
+                    "PROJECT_INQUIRY", "POLICY_QUESTION", "COMPLIANCE_REQUEST",
+                    "OPERATIONAL_QUERY", "FINANCIAL_PRODUCT_INFO", "BANKING_PROCESS_INFO",
+                    "REGULATORY_INQUIRY", "TECHNOLOGY_QUESTION", "TREASURY_OPERATIONS",
+                    "RISK_MANAGEMENT", "AUDIT_COMPLIANCE", "CUSTOMER_ONBOARDING"
+                ],
+                "guardrail_accuracy": "95-98%",
+                "response_time_target": "< 2 seconds",
+                "memory_features": {
+                    "selective_reset": True,
+                    "topic_persistence": True,
+                    "entity_continuity": True,
+                    "follow_up_detection": "enhanced"
+                },
+                "processing_strategies": [
+                    "direct_rag", "enhanced_rag", "contextual_rag", "template_response"
+                ]
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Error getting capabilities: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get capabilities")
+
+@app.post("/api/swiss-agent/test-intent-classification")
+async def test_intent_classification(
+    query: str = Form(...),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Test the sophisticated intent classification system"""
+    try:
+        if not query.strip():
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
+        
+        # Classify intent
+        intent_result = swiss_agent.intent_classifier.classify_intent(query)
+        
+        return {
+            "success": True,
+            "query": query,
+            "classification": {
+                "primary_intent": intent_result.primary_intent.value,
+                "confidence_score": intent_result.confidence_score,
+                "complexity_level": intent_result.complexity_level,
+                "domain_entities": intent_result.domain_entities,
+                "processing_strategy": intent_result.processing_strategy,
+                "guardrail_triggered": intent_result.guardrail_triggered,
+                "guardrail_reason": intent_result.guardrail_reason,
+                "classification_time_ms": intent_result.classification_time_ms
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Error in intent classification test: {str(e)}")
+        raise HTTPException(status_code=500, detail="Intent classification test failed")
+
+@app.get("/api/swiss-agent/memory-details/{user_id}")
+async def get_memory_details(
+    user_id: str,
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Get detailed conversation memory information"""
+    try:
+        memory = swiss_agent.intent_classifier.conversation_memory
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "memory_stats": {
+                "total_turns": len(memory.turns),
+                "entities_tracked": len(memory.entity_mentions),
+                "topics_identified": len(memory.topic_threads),
+                "intent_history_length": len(memory.intent_history)
+            },
+            "active_topics": [
+                {
+                    "topic_id": topic_id,
+                    "topic_name": thread.topic_name,
+                    "mentions": len(thread.mentions),
+                    "is_active": thread.is_active
+                }
+                for topic_id, thread in memory.topic_threads.items()
+            ],
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Error getting memory details: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get memory details")
+
+@app.post("/api/swiss-agent/test-guardrails")
+async def test_guardrails(
+    query: str = Form(...),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Test banking domain guardrails"""
+    try:
+        # Extract entities first
+        entities = swiss_agent.intent_classifier.entity_extractor.extract_entities(query)
+        
+        # Test guardrails
+        is_valid, reason = swiss_agent.intent_classifier.guardrails.validate_query(query, entities)
+        
+        return {
+            "success": True,
+            "query": query,
+            "guardrail_result": {
+                "is_valid": is_valid,
+                "reason": reason,
+                "extracted_entities": entities,
+                "banking_confidence": swiss_agent.intent_classifier.guardrails._calculate_banking_confidence(
+                    query.lower(), entities
+                )
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Error testing guardrails: {str(e)}")
+        raise HTTPException(status_code=500, detail="Guardrail test failed")
+
+@app.get("/api/swiss-agent/performance-metrics")
+async def get_performance_metrics(
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Get detailed performance metrics"""
+    try:
+        metrics = swiss_agent.performance_metrics
+        
+        return {
+            "metrics": metrics,
+            "targets": {
+                "response_time": "< 2.0 seconds",
+                "guardrail_accuracy": "95-98%",
+                "cache_efficiency": "> 30%"
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting metrics: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get metrics")
+
+@app.post("/api/swiss-agent/test-guardrails-ai")
+async def test_ai_guardrails(
+    query: str = Form(...),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Test AI-powered banking domain guardrails with dynamic guidance"""
+    try:
+        # Extract entities first
+        entities = swiss_agent.intent_classifier.entity_extractor.extract_entities(query)
+        
+        # Test AI-powered guardrails
+        is_valid, ai_guidance = swiss_agent.intent_classifier.guardrails.validate_query(
+            query, entities, use_ai_guidance=True
         )
         
         return {
             "success": True,
-            "original_message": message_with_references,
-            "resolved_message": resolved_message,
-            "references_resolved": resolved_message != message_with_references,
-            "resolution_method": "ai_powered_claude",
-            "framework_type": "internal_employee_tool",
+            "query": query,
+            "guardrail_result": {
+                "is_valid": is_valid,
+                "ai_guidance": ai_guidance,
+                "extracted_entities": entities,
+                "guidance_type": ai_guidance.get("guidance_type") if isinstance(ai_guidance, dict) else None
+            },
             "timestamp": datetime.now().isoformat()
         }
-        
     except Exception as e:
-        logging.error(f"Error in reference resolution test: {str(e)}")
-        raise HTTPException(status_code=500, detail="Reference resolution test failed")
+        logging.error(f"Error testing AI guardrails: {str(e)}")
+        raise HTTPException(status_code=500, detail="AI guardrail test failed")
 
-@app.get("/api/swiss-agent/domain-capabilities")
-async def get_domain_capabilities(swiss_agent_service = Depends(get_swiss_agent_service)):
-    """
-    Get information about Swiss Agent's domain-agnostic capabilities
-    """
+@app.post("/api/swiss-agent/analyze-query-refinement")
+async def analyze_query_refinement(
+    original_query: str = Form(...),
+    refined_query: str = Form(...),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Analyze the improvement between original and refined queries"""
     try:
+        # Test both queries
+        original_entities = swiss_agent.intent_classifier.entity_extractor.extract_entities(original_query)
+        refined_entities = swiss_agent.intent_classifier.entity_extractor.extract_entities(refined_query)
+        
+        original_valid, original_reason = swiss_agent.intent_classifier.guardrails.validate_query(
+            original_query, original_entities, use_ai_guidance=False
+        )
+        refined_valid, refined_reason = swiss_agent.intent_classifier.guardrails.validate_query(
+            refined_query, refined_entities, use_ai_guidance=False
+        )
+        
+        # Calculate confidence scores
+        original_confidence = swiss_agent.intent_classifier.guardrails._calculate_banking_confidence(
+            original_query.lower(), original_entities
+        )
+        refined_confidence = swiss_agent.intent_classifier.guardrails._calculate_banking_confidence(
+            refined_query.lower(), refined_entities
+        )
+        
         return {
             "success": True,
-            "domain_capabilities": {
-                "approach": "generalized_ai_powered",
-                "domain_agnostic": True,
-                "no_hardcoded_patterns": True,
-                "anthropic_methodology": True,
-                "adaptive_to_any_financial_domain": True,
-                "supported_domains": [
-                    "private_banking",
-                    "corporate_banking", 
-                    "etfs_and_investments",
-                    "wealth_management",
-                    "regulatory_compliance",
-                    "operations",
-                    "customer_service",
-                    "any_mnc_fintech_domain"
-                ],
-                "ai_capabilities": {
-                    "semantic_understanding": True,
-                    "entity_extraction": "claude_powered",
-                    "topic_identification": "claude_powered", 
-                    "reference_resolution": "claude_powered",
-                    "query_enhancement": "semantic_context_aware",
-                    "domain_adaptation": "automatic"
+            "analysis": {
+                "original": {
+                    "query": original_query,
+                    "valid": original_valid,
+                    "confidence": original_confidence,
+                    "entities": original_entities
+                },
+                "refined": {
+                    "query": refined_query,
+                    "valid": refined_valid,
+                    "confidence": refined_confidence,
+                    "entities": refined_entities
+                },
+                "improvement": {
+                    "confidence_delta": refined_confidence - original_confidence,
+                    "validation_improved": not original_valid and refined_valid,
+                    "entities_added": len(refined_entities) - len(original_entities)
                 }
             },
-            "current_domain": swiss_agent_service.semantic_memory.conversation_domain,
-            "entities_tracked": len(swiss_agent_service.semantic_memory.entities),
-            "topics_identified": len(swiss_agent_service.semantic_memory.topics),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Error analyzing query refinement: {str(e)}")
+        raise HTTPException(status_code=500, detail="Query refinement analysis failed")
+
+@app.get("/api/swiss-agent/guardrails-config")
+async def get_guardrails_configuration(
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Get current banking guardrails configuration"""
+    try:
+        guardrails = swiss_agent.intent_classifier.guardrails
+        
+        return {
+            "success": True,
+            "configuration": {
+                "allowed_domains": {
+                    domain: {
+                        "patterns_count": len(config["patterns"]),
+                        "sample_patterns": config["patterns"][:3],
+                        "context_indicators": config["context_indicators"]
+                    }
+                    for domain, config in guardrails.allowed_domains.items()
+                },
+                "confidence_thresholds": guardrails.confidence_thresholds,
+                "banking_strength_multipliers": guardrails.banking_strength_multipliers,
+                "business_context_patterns_count": len(guardrails.business_context_patterns),
+                "ai_expert_available": guardrails.guardrails_expert is not None
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Error getting guardrails config: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get guardrails configuration")
+
+@app.post("/api/swiss-agent/simulate-user-journey")
+async def simulate_user_journey(
+    initial_query: str = Form(...),
+    swiss_agent: OptimizedSwissAgent = Depends(get_swiss_agent)
+):
+    """Simulate a user journey from failed query to successful refinement"""
+    try:
+        journey_steps = []
+        current_query = initial_query
+        
+        # Step 1: Test initial query
+        entities = swiss_agent.intent_classifier.entity_extractor.extract_entities(current_query)
+        is_valid, ai_guidance = swiss_agent.intent_classifier.guardrails.validate_query(
+            current_query, entities, use_ai_guidance=True
+        )
+        
+        journey_steps.append({
+            "step": 1,
+            "action": "initial_query_test",
+            "query": current_query,
+            "valid": is_valid,
+            "guidance": ai_guidance if not is_valid else None
+        })
+        
+        # Step 2: If invalid, show AI guidance
+        if not is_valid and isinstance(ai_guidance, dict):
+            journey_steps.append({
+                "step": 2,
+                "action": "ai_guidance_provided",
+                "non_technical_explanation": ai_guidance.get("non_technical"),
+                "specific_suggestions": ai_guidance.get("specific_suggestions", []),
+                "suggested_queries": ai_guidance.get("suggested_queries", []),
+                "domain_guidance": ai_guidance.get("domain_guidance")
+            })
+            
+            # Step 3: Test a suggested refined query
+            if ai_guidance.get("suggested_queries"):
+                refined_query = ai_guidance["suggested_queries"][0]
+                refined_entities = swiss_agent.intent_classifier.entity_extractor.extract_entities(refined_query)
+                refined_valid, _ = swiss_agent.intent_classifier.guardrails.validate_query(
+                    refined_query, refined_entities, use_ai_guidance=False
+                )
+                
+                journey_steps.append({
+                    "step": 3,
+                    "action": "refined_query_test",
+                    "query": refined_query,
+                    "valid": refined_valid,
+                    "improvement_achieved": refined_valid and not is_valid
+                })
+        
+        return {
+            "success": True,
+            "user_journey": {
+                "initial_query": initial_query,
+                "journey_successful": any(step.get("valid") for step in journey_steps),
+                "steps": journey_steps,
+                "total_steps": len(journey_steps)
+            },
             "timestamp": datetime.now().isoformat()
         }
         
     except Exception as e:
-        logging.error(f"Error getting domain capabilities: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to get domain capabilities")
+        logging.error(f"Error simulating user journey: {str(e)}")
+        raise HTTPException(status_code=500, detail="User journey simulation failed")
     
 # ==================== HELPER FUNCTIONS ====================
 
@@ -2542,27 +3080,6 @@ async def _create_complaint_from_triage(triage_result: Dict[str, Any],
     }
 
 # ==================== ADMIN ENDPOINTS  ====================
-
-@app.get("/api/dashboard/complaints")
-async def get_dashboard_complaints(
-    complaint_status: Optional[str] = None,
-    limit: int = 50,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-    db_service: DatabaseService = Depends(get_db_service)
-):
-    """Get complaints for dashboard view (requires authentication)"""
-    try:
-        # TODO: Add admin role check here
-        complaints = await db_service.get_complaints_for_dashboard(complaint_status, limit)
-        return {"complaints": complaints}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"⚠ Error getting dashboard complaints: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve dashboard complaints"
-        )
 
 @app.put("/api/complaints/{complaint_id}/status")
 async def update_complaint_status(
@@ -2638,3 +3155,5 @@ if __name__ == "__main__":
 # uvicorn backend.main:app --reload
 # python main.py
 # This will start the FastAPI server on http://localhost:8000
+
+

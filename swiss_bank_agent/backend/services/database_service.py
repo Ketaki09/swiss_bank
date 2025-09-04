@@ -490,49 +490,32 @@ class DatabaseService:
                 "status": "unhealthy",
                 "error": str(e)
             }
-    
-    async def get_realistic_timelines(self) -> Dict[str, Dict[str, str]]:
-        """Get realistic timelines from database configuration"""
-        if not self._check_connection():
-            raise ConnectionError("Database connection not established")
-        
-        try:
-            if self.database is None:
-                raise ConnectionError("Database not properly initialized")
-            
-            config_col = self.database["complaint_configuration"]
-            
-            config = await config_col.find_one(
-                {"config_id": "realistic_timelines", "active": True},
-                {"_id": 0}
-            )
-            
-            if config and "timelines" in config:
-                return config["timelines"]
-            else:
-                # Return fallback timelines if none found in database
-                return self._get_fallback_timelines()
-                
-        except Exception as e:
-            print(f"❌ Error getting realistic timelines: {e}")
-            return self._get_fallback_timelines()
 
-    def _get_fallback_timelines(self) -> Dict[str, Dict[str, str]]:
-        """Fallback timelines if database is unavailable"""
+    def get_realistic_timelines(self) -> Dict[str, Dict[str, str]]:
+        """Get realistic timelines for complaint categories"""
         return {
             "fraudulent_activities_unauthorized_transactions": {
                 "security_action": "Immediate",
-                "investigation_start": "2-4 Working hours",
+                "investigation_start": "2-4 hours",
                 "provisional_credit_review": "1-3 business days",
-                "final_resolution": "3-5 business days",
+                "final_resolution": "7-10 business days",
                 "new_card_delivery": "24-48 hours"
             },
             "dispute_resolution_issues": {
                 "case_creation": "Immediate",
-                "investigation_start": "1-2 Working hours", 
-                "provisional_credit_review": "1-2 business days",
-                "final_resolution": "3-5 business days",
-                "appeal_process": "5-10 business days"
+                "investigation_start": "1-2 business days", 
+                "provisional_credit_review": "3-5 business days",
+                "final_resolution": "10-14 business days"
+            },
+            "account_freezes_holds_funds": {
+                "security_review": "2-4 hours",
+                "documentation_review": "4-24 hours",
+                "access_restoration": "1-3 business days"
+            },
+            "online_banking_technical_security_issues": {
+                "security_check": "Immediate",
+                "technical_investigation": "2-4 hours",
+                "resolution": "4-24 hours"
             },
             "default": {
                 "initial_response": "2-4 hours",
