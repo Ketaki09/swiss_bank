@@ -150,19 +150,6 @@ class AnthropicContextualRAGService:
         self.last_api_call_time = 0
         self.api_call_lock = threading.Lock()
 
-        # API usage tracking
-        self.api_calls_count = 0
-        self.api_errors_count = 0
-        self.rag_api_calls_count = 0  
-        self.rag_tokens_used = 0     
-        self.rag_cost_estimate = 0.0
-
-        # Cost tracking per operation type
-        self.operation_costs = {
-            "contextual_enhancement": {"calls": 0, "tokens": 0, "cost": 0.0},
-            "query_enhancement": {"calls": 0, "tokens": 0, "cost": 0.0},
-            "content_detection": {"calls": 0, "tokens": 0, "cost": 0.0}
-        }
 
         # Log files
         self.processing_log_file = self.documents_dir / "processing_log.json"
@@ -242,17 +229,17 @@ class AnthropicContextualRAGService:
             
             if not api_key:
                 if not getattr(self, 'quiet_mode', False):
-                    logger.warning("⚠️ RAG_API_KEY environment variable not found - contextual enhancement disabled")
+                    logger.warning("Ã¢Å¡ Ã¯Â¸Â RAG_API_KEY environment variable not found - contextual enhancement disabled")
                 self.claude_client = None
                 return
             
             self.claude_client = anthropic.Anthropic(api_key=api_key)
             if not getattr(self, 'quiet_mode', False):
-                logger.info("✅ Claude API client initialized for RAG service with dedicated key")
+                logger.info("Ã¢Å“â€¦ Claude API client initialized for RAG service with dedicated key")
             
         except Exception as e:
             if not getattr(self, 'quiet_mode', False):
-                logger.error(f"❌ Failed to initialize Claude API for RAG service: {e}")
+                logger.error(f"Ã¢ÂÅ’ Failed to initialize Claude API for RAG service: {e}")
             self.claude_client = None
 
     def _get_model_cache_path(self) -> Optional[Path]:
@@ -262,7 +249,7 @@ class AnthropicContextualRAGService:
             model_cache_name = f"models--{self.embedding_model_name.replace('/', '--')}"
             return cache_root / model_cache_name
         except Exception as e:
-            logger.warning(f"⚠️ Could not determine cache path: {e}")
+            logger.warning(f"Ã¢Å¡ Ã¯Â¸Â Could not determine cache path: {e}")
             return None
 
     def _check_model_cache(self, cache_path: Optional[Path]) -> bool:
@@ -288,13 +275,13 @@ class AnthropicContextualRAGService:
                 size_mb = total_size / (1024 * 1024)
                 
                 if not getattr(self, 'quiet_mode', False):
-                    logger.info(f"📋 Found cached model files ({size_mb:.1f} MB)")
+                    logger.info(f"Ã°Å¸â€œâ€¹ Found cached model files ({size_mb:.1f} MB)")
                 return True
             
             return False
             
         except Exception as e:
-            logger.warning(f"⚠️ Error checking model cache: {e}")
+            logger.warning(f"Ã¢Å¡ Ã¯Â¸Â Error checking model cache: {e}")
             return False
 
     def _clear_model_cache(self) -> bool:
@@ -304,20 +291,20 @@ class AnthropicContextualRAGService:
             if cache_path and cache_path.exists():
                 import shutil
                 shutil.rmtree(cache_path)
-                logger.info(f"🗑️ Cleared model cache")
+                logger.info(f"Ã°Å¸â€”â€˜Ã¯Â¸Â Cleared model cache")
                 return True
             else:
-                logger.info("📁 No cache found to clear")
+                logger.info("Ã°Å¸â€œÂ No cache found to clear")
                 return False
         except Exception as e:
-            logger.error(f"❌ Error clearing cache: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error clearing cache: {e}")
             return False
 
     def _initialize_embedding_model(self):
         """Initialize sentence transformer model with better cache checking"""
         try:
             if not getattr(self, 'quiet_mode', False):
-                logger.info(f"🤖 Initializing embedding model: {self.embedding_model_name}")
+                logger.info(f"Ã°Å¸Â¤â€“ Initializing embedding model: {self.embedding_model_name}")
             
             # Load cache directories from .env
             backend_dir = Path(__file__).parent.parent
@@ -328,7 +315,7 @@ class AnthropicContextualRAGService:
             cache_dir = os.getenv('HF_HOME', str(Path.home() / ".cache" / "huggingface"))
             
             if not getattr(self, 'quiet_mode', False):
-                logger.info(f"📁 Using cache directory: {cache_dir}")
+                logger.info(f"Ã°Å¸â€œÂ Using cache directory: {cache_dir}")
 
             # Check if model is properly cached - but don't log conflicting info
             cache_path = Path(cache_dir) / "hub" / f"models--{self.embedding_model_name.replace('/', '--')}"
@@ -336,7 +323,7 @@ class AnthropicContextualRAGService:
             
             # Only log cache status if we're confident about it
             if not getattr(self, 'quiet_mode', False) and is_cached:
-                logger.info(f"📦 Model found in local cache")
+                logger.info(f"Ã°Å¸â€œÂ¦ Model found in local cache")
 
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
             
@@ -348,11 +335,11 @@ class AnthropicContextualRAGService:
             )
                 
             if not getattr(self, 'quiet_mode', False):
-                logger.info(f"✅ Embedding model loaded successfully")
+                logger.info(f"Ã¢Å“â€¦ Embedding model loaded successfully")
             
         except Exception as e:
             if not getattr(self, 'quiet_mode', False):
-                logger.error(f"❌ Failed to load embedding model: {e}")
+                logger.error(f"Ã¢ÂÅ’ Failed to load embedding model: {e}")
             try:
                 device = 'cuda' if torch.cuda.is_available() else 'cpu'
                 cache_dir = os.getenv('HF_HOME', str(Path.home() / ".cache" / "huggingface"))
@@ -364,46 +351,25 @@ class AnthropicContextualRAGService:
                 )
                 
                 if not getattr(self, 'quiet_mode', False):
-                    logger.info("✅ Loaded fallback embedding model")
+                    logger.info("Ã¢Å“â€¦ Loaded fallback embedding model")
             except Exception as e2:
                 if not getattr(self, 'quiet_mode', False):
-                    logger.error(f"❌ Failed to load fallback model: {e2}")
+                    logger.error(f"Ã¢ÂÅ’ Failed to load fallback model: {e2}")
                 self.embedding_model = None
 
     def _verify_model_cache(self, cache_path: Path) -> bool:
-        """Verify that the model cache is complete and valid"""
+        """Simplified cache verification"""
         try:
             if not cache_path.exists():
                 return False
             
-            # Check for required files with more flexible approach
-            config_files = list(cache_path.rglob("config.json"))
-            model_files = (list(cache_path.rglob("*.safetensors")) + 
-                        list(cache_path.rglob("*.bin")) + 
-                        list(cache_path.rglob("pytorch_model.*")))
+            # Just check if any model files exist
+            model_files = (list(cache_path.rglob("*.bin")) + 
+                        list(cache_path.rglob("*.safetensors")))
             
-            # At minimum need config and model files
-            if not config_files or not model_files:
-                return False
+            return len(model_files) > 0 and any(f.stat().st_size > 1024*1024 for f in model_files)
             
-            # Check if main model file exists and has reasonable size
-            main_model = None
-            for model_file in model_files:
-                if any(name in model_file.name.lower() for name in ['model', 'pytorch']):
-                    main_model = model_file
-                    break
-            
-            if not main_model:
-                main_model = model_files[0]  # Use first available model file
-            
-            # Check file size (should be at least a few MB for a real model)
-            if main_model.stat().st_size < 10 * 1024 * 1024:  # Less than 10MB is suspicious
-                return False
-            
-            return True
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Error verifying model cache: {e}")
+        except Exception:
             return False
         
     def _initialize_chroma(self):
@@ -420,19 +386,19 @@ class AnthropicContextualRAGService:
             try:
                 self.collection = self.client.get_collection(name=self.collection_name)
                 if not getattr(self, 'quiet_mode', False):
-                    logger.info(f"✅ Connected to existing ChromaDB collection: {self.collection_name}")
+                    logger.info(f"Ã¢Å“â€¦ Connected to existing ChromaDB collection: {self.collection_name}")
             except Exception:
                 self.collection = self.client.create_collection(
                     name=self.collection_name,
                     metadata={"description": "Anthropic-style contextual document collection"}
                 )
                 if not getattr(self, 'quiet_mode', False):
-                    logger.info(f"✅ Created new ChromaDB collection: {self.collection_name}")
+                    logger.info(f"Ã¢Å“â€¦ Created new ChromaDB collection: {self.collection_name}")
                 
         except Exception as e:
             self.collection = None
             if not getattr(self, 'quiet_mode', False):
-                logger.error(f"❌ Failed to initialize ChromaDB: {e}")
+                logger.error(f"Ã¢ÂÅ’ Failed to initialize ChromaDB: {e}")
             raise
 
     def _load_processing_logs(self):
@@ -443,12 +409,12 @@ class AnthropicContextualRAGService:
                 with open(self.processing_log_file, 'r') as f:
                     self.processed_files_log = json.load(f)
                 if not getattr(self, 'quiet_mode', False):
-                    logger.info(f"📄 Loaded processing log with {len(self.processed_files_log)} entries")
+                    logger.info(f"Ã°Å¸â€œâ€ž Loaded processing log with {len(self.processed_files_log)} entries")
             else:
                 self.processed_files_log = {}
         except Exception as e:
             if not getattr(self, 'quiet_mode', False):
-                logger.error(f"❌ Error loading processing log: {e}")
+                logger.error(f"Ã¢ÂÅ’ Error loading processing log: {e}")
             self.processed_files_log = {}
         
         # Load file versions log
@@ -457,12 +423,12 @@ class AnthropicContextualRAGService:
                 with open(self.versions_log_file, 'r') as f:
                     self.file_versions = json.load(f)
                 if not getattr(self, 'quiet_mode', False):
-                    logger.info(f"📚 Loaded versions log with {len(self.file_versions)} file groups")
+                    logger.info(f"Ã°Å¸â€œÅ¡ Loaded versions log with {len(self.file_versions)} file groups")
             else:
                 self.file_versions = {}
         except Exception as e:
             if not getattr(self, 'quiet_mode', False):
-                logger.error(f"❌ Error loading versions log: {e}")
+                logger.error(f"Ã¢ÂÅ’ Error loading versions log: {e}")
             self.file_versions = {}
             
         # Load processing statistics
@@ -474,7 +440,7 @@ class AnthropicContextualRAGService:
                 self.processing_stats = {}
         except Exception as e:
             if not getattr(self, 'quiet_mode', False):
-                logger.error(f"❌ Error loading stats log: {e}")
+                logger.error(f"Ã¢ÂÅ’ Error loading stats log: {e}")
             self.processing_stats = {}
             
         # Load contextual cache
@@ -486,7 +452,7 @@ class AnthropicContextualRAGService:
                 self.contextual_cache = {}
         except Exception as e:
             if not getattr(self, 'quiet_mode', False):
-                logger.error(f"❌ Error loading contextual cache: {e}")
+                logger.error(f"Ã¢ÂÅ’ Error loading contextual cache: {e}")
             self.contextual_cache = {}
 
     def _load_bm25_index(self):
@@ -503,10 +469,10 @@ class AnthropicContextualRAGService:
                     tokenized_docs = [doc.lower().split() for doc in self.bm25_documents]
                     self.bm25_index = BM25Okapi(tokenized_docs)
                     if not getattr(self, 'quiet_mode', False):
-                        logger.info(f"📊 Loaded BM25 index with {len(self.bm25_documents)} documents")
+                        logger.info(f"Ã°Å¸â€œÅ  Loaded BM25 index with {len(self.bm25_documents)} documents")
         except Exception as e:
             if not getattr(self, 'quiet_mode', False):
-                logger.error(f"❌ Error loading BM25 index: {e}")
+                logger.error(f"Ã¢ÂÅ’ Error loading BM25 index: {e}")
             self.bm25_index = None
             self.bm25_documents = []
             self.bm25_metadata = []
@@ -538,60 +504,42 @@ class AnthropicContextualRAGService:
                 json.dump(self.contextual_cache, f, indent=2)
                 
         except Exception as e:
-            logger.error(f"❌ Error saving logs: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error saving logs: {e}")
     
-    def _rate_limited_api_call(self, api_call_func, operation_type="general", *args, **kwargs):
-        """
-        Execute API call with rate limiting and cost tracking for RAG service
-        """
+    def _rate_limited_api_call(self, api_call_func, operation_type="general", max_retries=3, *args, **kwargs):
+        """Simplified API call with exponential backoff"""
         with self.api_call_lock:
-            current_time = time.time()
-            time_since_last_call = current_time - self.last_api_call_time
+            for attempt in range(max_retries):
+                current_time = time.time()
+                time_since_last_call = current_time - self.last_api_call_time
+                
+                if time_since_last_call < self.api_call_delay:
+                    sleep_time = self.api_call_delay - time_since_last_call
+                    time.sleep(sleep_time)
+                
+                try:
+                    response = api_call_func(*args, **kwargs)
+                    self.last_api_call_time = time.time()
+                    return response
+                        
+                except Exception as e:
+                    error_msg = str(e)
+                    
+                    # Check if it's a 500 error
+                    if "500" in error_msg and attempt < max_retries - 1:
+                        backoff_time = (2 ** attempt) + self.api_call_delay
+                        if not getattr(self, 'quiet_mode', False):
+                            logger.warning(f"API 500 error, retrying in {backoff_time:.2f}s (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(backoff_time)
+                        continue
+                    else:
+                        if not getattr(self, 'quiet_mode', False):
+                            logger.warning(f"RAG API call failed: {e}")
+                        self.last_api_call_time = time.time()
+                        return None
             
-            if time_since_last_call < self.api_call_delay:
-                sleep_time = self.api_call_delay - time_since_last_call
-                if not getattr(self, 'quiet_mode', False):
-                    logger.info(f"⏳ RAG Service rate limiting: waiting {sleep_time:.2f}s")
-                time.sleep(sleep_time)
-            
-            try:
-                # Make the API call
-                self.api_calls_count += 1
-                self.rag_api_calls_count += 1  # RAG-specific counter
-                
-                response = api_call_func(*args, **kwargs)
-                self.last_api_call_time = time.time()
-                
-                # ADD: Track cost for RAG operations
-                if response and hasattr(response, 'usage'):
-                    input_tokens = getattr(response.usage, 'input_tokens', 0)
-                    output_tokens = getattr(response.usage, 'output_tokens', 0)
-                    total_tokens = input_tokens + output_tokens
-                    
-                    # Estimate cost (Claude 3.5 Haiku pricing: $0.25/$1.25 per 1M tokens)
-                    cost = (input_tokens * 0.25 + output_tokens * 1.25) / 1_000_000
-                    
-                    self.rag_tokens_used += total_tokens
-                    self.rag_cost_estimate += cost
-                    
-                    # Track by operation type
-                    if operation_type in self.operation_costs:
-                        self.operation_costs[operation_type]["calls"] += 1
-                        self.operation_costs[operation_type]["tokens"] += total_tokens
-                        self.operation_costs[operation_type]["cost"] += cost
-                    
-                    if not getattr(self, 'quiet_mode', False):
-                        logger.info(f"💰 RAG API call: {total_tokens} tokens, ~${cost:.4f}")
-                
-                return response
-                
-            except Exception as e:
-                self.api_errors_count += 1
-                if not getattr(self, 'quiet_mode', False):
-                    logger.warning(f"⚠️ RAG API call failed: {e}")
-                self.last_api_call_time = time.time()
-                return None
-
+            return None
+    
     def _detect_structured_content_with_ai(self, chunk: str, document_metadata: Dict[str, Any]) -> bool:
         """Use AI to detect if chunk contains structured information"""
         if not self.claude_client:
@@ -636,7 +584,7 @@ class AnthropicContextualRAGService:
                 
                 return "TRUE" in response_text.upper()
         except Exception as e:
-            logger.warning(f"⚠️ AI content detection failed: {e}")
+            logger.warning(f"Ã¢Å¡ Ã¯Â¸Â AI content detection failed: {e}")
             pass
         
         return False
@@ -716,7 +664,7 @@ class AnthropicContextualRAGService:
                 return f"{context}\n\n{chunk}"
                 
             except Exception as e:
-                logger.warning(f"⚠️ Failed to generate context with Claude: {e}")
+                logger.warning(f"Ã¢Å¡ Ã¯Â¸Â Failed to generate context with Claude: {e}")
                 self.api_errors_count += 1
         
         # Fallback: Generate simple context without Claude
@@ -746,7 +694,7 @@ class AnthropicContextualRAGService:
                     hash_md5.update(chunk)
             return hash_md5.hexdigest()
         except Exception as e:
-            logger.error(f"❌ Error calculating hash for {file_path}: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error calculating hash for {file_path}: {e}")
             return ""
     
     def _get_file_info(self, file_path: Path) -> Dict[str, Any]:
@@ -766,7 +714,7 @@ class AnthropicContextualRAGService:
                 "extension": file_path.suffix.lower()
             }
         except Exception as e:
-            logger.error(f"❌ Error getting file info: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error getting file info: {e}")
             return {}
     
     def _check_duplicate_strategy(self, file_info: Dict[str, Any]) -> Dict[str, Any]:
@@ -859,7 +807,7 @@ class AnthropicContextualRAGService:
                         if results and results.get("ids"):
                             chunk_ids_to_remove.extend(results["ids"])
                     except Exception as e:
-                        logger.warning(f"⚠️ Could not find chunks for document {document_id}: {e}")
+                        logger.warning(f"Ã¢Å¡ Ã¯Â¸Â Could not find chunks for document {document_id}: {e}")
                     
                     # Remove from BM25 index
                     for i, metadata in enumerate(self.bm25_metadata):
@@ -873,9 +821,9 @@ class AnthropicContextualRAGService:
                         logger.error("Collection not initialized")
                         return
                     self.collection.delete(ids=chunk_ids_to_remove)
-                    logger.info(f"🗑️ Removed {len(chunk_ids_to_remove)} chunks from ChromaDB")
+                    logger.info(f"Ã°Å¸â€”â€˜Ã¯Â¸Â Removed {len(chunk_ids_to_remove)} chunks from ChromaDB")
                 except Exception as e:
-                    logger.error(f"❌ Error removing chunks: {e}")
+                    logger.error(f"Ã¢ÂÅ’ Error removing chunks: {e}")
             
             # Remove from BM25 index (reverse order to maintain indices)
             for i in sorted(bm25_indices_to_remove, reverse=True):
@@ -888,7 +836,6 @@ class AnthropicContextualRAGService:
                 if self.bm25_documents:
                     tokenized_docs = [doc.lower().split() for doc in self.bm25_documents]
                     self.bm25_index = BM25Okapi(tokenized_docs)
-                logger.info(f"🗑️ Removed {len(bm25_indices_to_remove)} documents from BM25 index")
             
             # Remove from processing log
             keys_to_remove = []
@@ -899,17 +846,15 @@ class AnthropicContextualRAGService:
             
             for key in keys_to_remove:
                 del self.processed_files_log[key]
-                
-            logger.info(f"🗑️ Removed {len(keys_to_remove)} entries from processing log")
             
         except Exception as e:
-            logger.error(f"❌ Error removing previous versions: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error removing previous versions: {e}")
     
     def process_all_documents(self) -> Dict[str, Any]:
         """Process all documents with Anthropic's Contextual Retrieval approach"""
         try:
             start_time = time.time()
-            logger.info(f"🔍 Starting Anthropic-style contextual document processing...")
+            logger.info(f"Ã°Å¸â€Â Starting Anthropic-style contextual document processing...")
             
             # Get all supported files
             all_files = []
@@ -948,7 +893,7 @@ class AnthropicContextualRAGService:
                     strategy = self._check_duplicate_strategy(file_info)
                     
                     if strategy["action"] == "skip":
-                        logger.info(f"⏭️ Skipping {file_path.name}: {strategy['reason']}")
+                        logger.info(f"Ã¢ÂÂ­Ã¯Â¸Â Skipping {file_path.name}: {strategy['reason']}")
                         skipped_count += 1
                         results.append({
                             "success": True,
@@ -959,12 +904,12 @@ class AnthropicContextualRAGService:
                         continue
                     
                     elif strategy["action"] == "overwrite":
-                        logger.info(f"🔄 Overwriting {file_path.name}: {strategy['reason']}")
+                        logger.info(f"Ã°Å¸â€â€ž Overwriting {file_path.name}: {strategy['reason']}")
                         self._remove_previous_versions(strategy["previous_versions"])
                         overwritten_count += 1
                     
                     elif strategy["action"] == "version":
-                        logger.info(f"📚 Creating new version of {file_path.name}")
+                        logger.info(f"Ã°Å¸â€œÅ¡ Creating new version of {file_path.name}")
                     
                     # Process the file with contextual enhancement
                     result = self._process_single_file_contextual(file_path, file_info, strategy)
@@ -978,7 +923,7 @@ class AnthropicContextualRAGService:
                         error_count += 1
                         
                 except Exception as e:
-                    logger.error(f"❌ Error processing {file_path.name}: {e}")
+                    logger.error(f"Ã¢ÂÅ’ Error processing {file_path.name}: {e}")
                     error_count += 1
                     results.append({
                         "success": False,
@@ -992,7 +937,7 @@ class AnthropicContextualRAGService:
                                              error_count, processing_time, contextual_enhancements)
             self._save_processing_logs()
             
-            logger.info(f"✅ Contextual processing complete - Processed: {processed_count}, "
+            logger.info(f"Ã¢Å“â€¦ Contextual processing complete - Processed: {processed_count}, "
                        f"Contextually Enhanced: {contextual_enhancements}, Skipped: {skipped_count}, "
                        f"Overwritten: {overwritten_count}, Errors: {error_count}")
             
@@ -1012,7 +957,7 @@ class AnthropicContextualRAGService:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error in contextual document processing: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error in contextual document processing: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -1023,7 +968,7 @@ class AnthropicContextualRAGService:
                                       strategy: Dict[str, Any]) -> Dict[str, Any]:
         """Process a single document file with Anthropic's contextual approach"""
         try:
-            logger.info(f"📄 Processing file with contextual enhancement: {file_path.name}")
+            logger.info(f"Ã°Å¸â€œâ€ž Processing file with contextual enhancement: {file_path.name}")
             
             # Extract text based on file type
             extension = file_path.suffix.lower()
@@ -1042,7 +987,9 @@ class AnthropicContextualRAGService:
             
             # Process and chunk content
             processed_content = self._preprocess_text(text_content)
-            chunks = self._chunk_text(processed_content, file_path)
+            # Extract title and status for metadata
+            title, status = self._extract_title_and_status_from_text(processed_content, file_info["file_stem"])
+            chunks = self._enhanced_project_aware_chunking(processed_content, file_path)
             
             # Generate document ID
             if strategy["action"] == "version":
@@ -1055,6 +1002,8 @@ class AnthropicContextualRAGService:
             document_metadata = {
                 "document_id": doc_id,
                 "source_file": file_path.name,
+                "title": title,  
+                "status": status,
                 "file_type": extension,
                 "file_path": str(file_path.relative_to(self.documents_dir)),
                 "file_hash": file_info["file_hash"],
@@ -1082,13 +1031,13 @@ class AnthropicContextualRAGService:
             contextual_enhanced = False
             total_chunks = len(chunks)
             
-            logger.info(f"🧠 Generating contextual information for {total_chunks} chunks...")
+            logger.info(f"Ã°Å¸Â§  Generating contextual information for {total_chunks} chunks...")
             
             for i, chunk_data in enumerate(chunks):
                 original_chunk = chunk_data["content"]
 
                 if total_chunks > 5:  # Only show progress for larger documents
-                    logger.info(f"📝 Processing chunk {i+1}/{total_chunks}")
+                    logger.info(f"Ã°Å¸â€œÂ Processing chunk {i+1}/{total_chunks}")
                 
                 # Generate contextual information (with rate limiting)
                 contextual_chunk = self._generate_contextual_information(
@@ -1109,18 +1058,22 @@ class AnthropicContextualRAGService:
             # Store chunks in vector database and BM25 index
             self._store_chunks_contextual(contextual_chunks, document_metadata, doc_id)
             
+            # Store chunks with enhanced metadata
+            self._store_chunks_with_project_metadata(chunks, document_metadata, doc_id)
+            
+            # Record processing success with project count
+            project_count = len([c for c in chunks if c.get("project_metadata", {}).get("project_name")])
+           
             # Record processing success
             processing_record = {
                 **file_info,
                 "processed_date": datetime.now().isoformat(),
                 "document_id": doc_id,
                 "chunks_created": len(chunks),
-                "contextual_enhanced": contextual_enhanced,
-                "status": "success",
-                "processing_action": strategy["action"],
-                "duplicate_mode": self.duplicate_mode.value,
-                "chunking_strategy": self.chunking_strategy.value,
-                "retrieval_strategy": self.retrieval_strategy.value
+                "projects_identified": project_count,
+                "contextual_enhanced": True,
+                "chunking_method": "project_aware",
+                "status": "success"
             }
             
             # Add version info
@@ -1133,25 +1086,278 @@ class AnthropicContextualRAGService:
             
             self.processed_files_log[file_path.name] = processing_record
             
-            logger.info(f"✅ Successfully processed with contextual enhancement: {file_path.name}")
+            logger.info(f"Ã¢Å“â€¦ Successfully processed with {project_count} projects identified: {file_path.name}")
             
             return {
                 "success": True,
                 "file": file_path.name,
                 "document_id": doc_id,
                 "chunks_created": len(chunks),
-                "contextual_enhanced": contextual_enhanced,
+                "projects_identified": project_count,
+                "contextual_enhanced": True,
                 "action": strategy["action"]
             }
                 
         except Exception as e:
-            logger.error(f"❌ Error processing file {file_path.name}: {e}")
+            logger.error(f"Error processing file {file_path.name}: {e}")
             return {
                 "success": False,
                 "file": file_path.name,
                 "error": str(e)
             }
     
+    def _store_chunks_with_project_metadata(self, chunks: List[Dict[str, Any]], 
+                                       document_metadata: Dict[str, Any], doc_id: str):
+        """Store chunks with enhanced project metadata"""
+        
+        if not self.embedding_model or not self.collection:
+            raise RuntimeError("Embedding model or collection not initialized")
+        
+        chunk_ids = []
+        chunk_metadatas = []
+        chunk_documents = []
+        chunk_embeddings = []
+        
+        for i, chunk_data in enumerate(chunks):
+            chunk_id = f"{doc_id}_chunk_{i}"
+            
+            # Use contextual content for embedding and storage
+            contextual_content = chunk_data.get("contextual_content", chunk_data["content"])
+            original_content = chunk_data.get("original_content", chunk_data["content"])
+            
+            # Generate embedding from contextual content
+            embedding = self.embedding_model.encode(contextual_content).tolist()
+            
+            # Enhanced metadata with project information
+            chunk_metadata = {
+                **document_metadata,
+                "chunk_index": i,
+                "chunk_id": chunk_id,
+                "chunk_type": chunk_data.get("type", "content"),
+                "chunk_size": chunk_data.get("size", len(original_content)),
+                "optimized_for_context": chunk_data.get("optimized_for_context", False)
+            }
+            
+            # Add project-specific metadata if available
+            if "project_metadata" in chunk_data:
+                project_meta = chunk_data["project_metadata"]
+                chunk_metadata.update({
+                    "project_name": project_meta.get("project_name"),
+                    "project_number": project_meta.get("project_number"),
+                    "project_status": project_meta.get("status"),
+                    "product_owner": project_meta.get("product_owner"),
+                    "is_project_summary": project_meta.get("is_summary", False),
+                    "total_projects_in_doc": project_meta.get("total_projects"),
+                    "has_complete_project_info": project_meta.get("has_complete_info", False)
+                })
+            
+            chunk_ids.append(chunk_id)
+            chunk_metadatas.append(chunk_metadata)
+            chunk_documents.append(contextual_content)
+            chunk_embeddings.append(embedding)
+            
+            # Add to BM25 index for hybrid search
+            self.bm25_documents.append(contextual_content)
+            self.bm25_metadata.append(chunk_metadata)
+        
+        # Add to ChromaDB collection
+        self.collection.add(
+            documents=chunk_documents,
+            metadatas=chunk_metadatas,
+            ids=chunk_ids,
+            embeddings=chunk_embeddings
+        )
+        
+        # Rebuild BM25 index if we have documents
+        if self.bm25_documents:
+            tokenized_docs = [doc.lower().split() for doc in self.bm25_documents]
+            self.bm25_index = BM25Okapi(tokenized_docs)
+    def query_documents_with_project_awareness(self, query: str, top_k: int = 8) -> Dict[str, Any]:
+        """Enhanced query with project-specific awareness"""
+        
+        try:
+            # Determine if this is a project-specific query
+            query_analysis = self._analyze_project_query(query)
+            
+            if query_analysis["is_project_specific"]:
+                # Use project-specific retrieval
+                return self._query_specific_project(
+                    query, 
+                    query_analysis["project_name"], 
+                    top_k
+                )
+            elif query_analysis["is_status_query"]:
+                # Use status-based retrieval
+                return self._query_by_project_status(
+                    query,
+                    query_analysis["target_status"],
+                    top_k
+                )
+            else:
+                # Use standard contextual hybrid search
+                return self._query_contextual_hybrid(query, top_k)
+                
+        except Exception as e:
+            logger.error(f"Project-aware query failed: {e}")
+            return self._query_contextual_hybrid(query, top_k)
+
+    def _analyze_project_query(self, query: str) -> Dict[str, Any]:
+        """Analyze if query is project-specific or status-based"""
+        
+        query_lower = query.lower()
+        
+        # Check for specific project names
+        project_names = [
+            "refinancing marketing filter", "data masking", "fraud detection",
+            "loan eligibility", "portfolio analyzer", "compliance reporting",
+            "predictive maintenance", "financial advice", "customer onboarding",
+            "payment gateway"
+        ]
+        
+        for project in project_names:
+            if project in query_lower:
+                return {
+                    "is_project_specific": True,
+                    "project_name": project,
+                    "is_status_query": False,
+                    "target_status": None
+                }
+        
+        # Check for status-based queries
+        status_patterns = {
+            "incomplete": ["in progress", "halted"],
+            "unfinished": ["in progress", "halted"],
+            "current": ["in progress"],
+            "ongoing": ["in progress"],
+            "halted": ["halted"],
+            "stopped": ["halted"],
+            "completed": ["completed"],
+            "finished": ["completed"]
+        }
+        
+        for query_term, target_statuses in status_patterns.items():
+            if query_term in query_lower:
+                return {
+                    "is_project_specific": False,
+                    "project_name": None,
+                    "is_status_query": True,
+                    "target_status": target_statuses
+                }
+        
+        return {
+            "is_project_specific": False,
+            "project_name": None,
+            "is_status_query": False,
+            "target_status": None
+        }
+
+    def _query_specific_project(self, query: str, project_name: str, top_k: int) -> Dict[str, Any]:
+        """Query for a specific project"""
+        
+        if not self.collection:
+            return {"success": False, "error": "Collection not initialized"}
+        
+        try:
+            # First, try to find project-specific chunks using correct ChromaDB where syntax
+            results = self.collection.query(
+                query_texts=[query],
+                n_results=top_k * 2,
+                where={"project_name": {"$eq": project_name}},  # Fixed: correct ChromaDB syntax
+                include=["documents", "metadatas", "distances"]
+            )
+            
+            # If no project-specific results, fall back to text search
+            if not results["documents"] or not results["documents"][0]:
+                results = self.collection.query(
+                    query_texts=[f"{project_name} {query}"],
+                    n_results=top_k,
+                    include=["documents", "metadatas", "distances"]
+                )
+            
+            # Convert ChromaDB QueryResult to Dict format for _format_query_results
+            results_dict = {
+                "documents": results.get("documents", []),
+                "metadatas": results.get("metadatas", []),
+                "distances": results.get("distances", []),
+                "ids": results.get("ids", [])
+            }
+            
+            return self._format_query_results(results_dict, query, "project_specific")
+            
+        except Exception as e:
+            logger.error(f"Error in project-specific query: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _query_by_project_status(self, query: str, target_statuses: List[str], top_k: int) -> Dict[str, Any]:
+        """Query projects by status"""
+        
+        if not self.collection:
+            return {"success": False, "error": "Collection not initialized"}
+        
+        try:
+            # Try to get summary chunk first
+            summary_results = self.collection.query(
+                query_texts=[query],
+                n_results=5,
+                where={"is_project_summary": {"$eq": True}},  # Fixed: correct syntax
+                include=["documents", "metadatas", "distances"]
+            )
+            
+            # Get individual project chunks with matching status
+            status_where = {
+                "$or": [
+                    {"project_status": {"$eq": status}}
+                    for status in target_statuses
+                ]
+            }
+
+            project_results = self.collection.query(
+                query_texts=[query],
+                n_results=top_k,
+                where=status_where,  # type: ignore
+                include=["documents", "metadatas", "distances"]
+            )
+            
+            # Safely combine results
+            combined_docs = []
+            combined_metadatas = []
+            combined_distances = []
+            combined_ids = []
+            
+            # Add summary results
+            if summary_results["documents"] and summary_results["documents"][0]:
+                combined_docs.extend(summary_results["documents"][0])
+                assert summary_results["metadatas"] is not None
+                combined_metadatas.extend(summary_results["metadatas"][0])
+                assert summary_results["distances"] is not None
+                combined_distances.extend(summary_results["distances"][0])
+                assert summary_results["ids"] is not None
+                combined_ids.extend(summary_results["ids"][0])
+            
+            # Add project results
+            if project_results["documents"] and project_results["documents"][0]:
+                combined_docs.extend(project_results["documents"][0])
+                assert project_results["metadatas"] is not None
+                combined_metadatas.extend(project_results["metadatas"][0])
+                assert project_results["distances"] is not None
+                combined_distances.extend(project_results["distances"][0])
+                assert project_results["ids"] is not None
+                combined_ids.extend(project_results["ids"][0])
+            
+            # Create properly formatted results
+            combined_results = {
+                "documents": [combined_docs],
+                "metadatas": [combined_metadatas],
+                "distances": [combined_distances],
+                "ids": [combined_ids]
+            }
+            
+            return self._format_query_results(combined_results, query, "status_filtered")
+            
+        except Exception as e:
+            logger.error(f"Error in status-based query: {e}")
+            return {"success": False, "error": str(e)}
+
     def _extract_pdf_text(self, pdf_path: Path) -> str:
         """Extract text content from PDF file"""
         try:
@@ -1165,10 +1371,9 @@ class AnthropicContextualRAGService:
             if not text_content.strip():
                 raise ValueError("No text content extracted from PDF")
             
-            logger.info(f"📄 Extracted {len(text_content)} characters from PDF")
             return text_content
         except Exception as e:
-            logger.error(f"❌ Error extracting PDF text: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error extracting PDF text: {e}")
             raise
     
     def _extract_docx_text(self, docx_path: Path) -> str:
@@ -1197,10 +1402,9 @@ class AnthropicContextualRAGService:
             if not text_content.strip():
                 raise ValueError("No text content extracted from DOCX")
             
-            logger.info(f"📄 Extracted {len(text_content)} characters from DOCX")
             return text_content
         except Exception as e:
-            logger.error(f"❌ Error extracting DOCX text: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error extracting DOCX text: {e}")
             raise
     
     def _extract_text_file(self, file_path: Path) -> str:
@@ -1212,12 +1416,56 @@ class AnthropicContextualRAGService:
             if not text_content.strip():
                 raise ValueError("No text content in file")
             
-            logger.info(f"📄 Extracted {len(text_content)} characters from text file")
             return text_content
         except Exception as e:
-            logger.error(f"❌ Error extracting text file: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error extracting text file: {e}")
             raise
     
+    def _extract_title_and_status_from_text(self, text: str, file_stem: Optional[str] = None) -> tuple[str, str]:
+        """
+        Heuristic extraction of a project title and Status from a document.
+        Returns (title, status). Falls back to file_stem / defaults.
+        """
+        import re
+        title = None
+        status = "unknown"
+
+        # quick normalization
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+        # 1) Numbered heading e.g. "4. Loan Eligibility Predictor"
+        for ln in lines[:60]:
+            m = re.match(r'^\s*\d+\.\s*(.+)', ln)
+            if m:
+                title = m.group(1).strip()
+                break
+
+        # 2) explicit title lines: e.g., "Loan Eligibility Predictor" as a short line near top
+        if not title:
+            for ln in lines[:12]:
+                if re.search(r'^(Status|Description|Business Objective)\b', ln, re.I):
+                    continue
+                if 2 <= len(ln.split()) <= 8 and not ln.endswith(':'):
+                    title = ln.strip()
+                    break
+
+        # 3) extract Status (searched through first ~60 lines)
+        for ln in lines[:80]:
+            m = re.search(r'\bStatus\s*[:\-\Ã¢â‚¬â€œ]\s*(.+)', ln, re.I)
+            if m:
+                status = m.group(1).strip()
+                break
+            m2 = re.search(r'\bStatus\b.*\b(In Progress|Completed|Halted|On Hold|In Review|Draft|Planned)\b', ln, re.I)
+            if m2:
+                status = m2.group(1).strip()
+                break
+
+        # final fallback
+        title = (title or file_stem or "Untitled").strip()
+        status = (status or "unknown").strip()
+        return title, status
+
+
     def _preprocess_text(self, text: str) -> str:
         """Preprocess text content"""
         # Remove excessive whitespace
@@ -1507,10 +1755,8 @@ class AnthropicContextualRAGService:
         if self.bm25_documents:
             tokenized_docs = [doc.lower().split() for doc in self.bm25_documents]
             self.bm25_index = BM25Okapi(tokenized_docs)
-        
-        logger.info(f"✅ Stored {len(chunks)} contextual chunks in vector database and BM25 index")
     
-    def query_documents(self, query: str, top_k: int = 5, 
+    def query_documents(self, query: str, top_k: int = 6, 
                        retrieval_strategy: Optional[RetrievalStrategy] = None) -> Dict[str, Any]:
         """
         Query documents using Anthropic's Contextual Retrieval approach
@@ -1544,12 +1790,122 @@ class AnthropicContextualRAGService:
                 return self._query_vector_only(query, top_k)
                 
         except Exception as e:
-            logger.error(f"❌ Error querying documents: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error querying documents: {e}")
             return {
                 "success": False,
                 "error": str(e)
             }
     
+    def _format_results_fast(self, results: Dict[str, Any], query: str) -> Dict[str, Any]:
+        """CORRECTED: Add relevance filtering to remove irrelevant chunks"""
+        try:
+            if not results or not results.get("documents"):
+                return {"success": True, "query": query, "documents": [], "message": "No documents found"}
+            
+            documents = results["documents"][0] if results["documents"] else []
+            metadatas = results["metadatas"][0] if results["metadatas"] else []
+            distances = results["distances"][0] if results["distances"] else []
+            
+            formatted_results = []
+            min_length = min(len(documents), len(metadatas), len(distances))
+            
+            for i in range(min_length):
+                distance = distances[i] if i < len(distances) else 1.0
+                similarity_score = max(0, 1 - min(distance, 1.0))
+                
+                # Use the existing _extract_actual_content method instead
+                content = self._extract_actual_content(documents[i])
+                metadata = metadatas[i] if i < len(metadatas) else {}
+                
+                # NEW: Add relevance check
+                if self._is_content_relevant(content, query):
+                    formatted_results.append({
+                        "content": content,
+                        "metadata": metadata,
+                        "similarity_score": similarity_score,
+                        "source_file": metadata.get("source_file", "Unknown"),
+                        "title": metadata.get("title"),
+                        "status": metadata.get("status")
+                    })
+            
+            return {
+                "success": True,
+                "query": query,
+                "documents": formatted_results,
+                "total_results": len(formatted_results)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error formatting results: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _is_content_relevant(self, content: str, query: str) -> bool:
+        """NEW METHOD: Check if content is relevant to the query"""
+        query_lower = query.lower()
+        content_lower = content.lower()
+        
+        # For follow-up questions, check for specific project mentions
+        if any(word in query_lower for word in ["refinancing", "marketing", "filter"]):
+            # Must contain these specific terms
+            return "refinancing marketing filter" in content_lower
+        
+        if any(word in query_lower for word in ["data", "masking"]):
+            return "data masking tool" in content_lower and "data masking tool" in content_lower[:200]
+        
+        if any(word in query_lower for word in ["fraud", "detection"]):
+            return "fraud detection" in content_lower
+        
+        # For general queries, use basic relevance
+        query_words = set(query_lower.split())
+        content_words = set(content_lower.split())
+        overlap = len(query_words.intersection(content_words))
+        
+        # At least 30% word overlap or high similarity
+        return overlap >= len(query_words) * 0.3
+
+    def _enhance_query_for_retrieval(self, query: str) -> Optional[str]:
+        """AI-powered semantic query enhancement without hardcoded patterns"""
+        
+        if not self.claude_client:
+            return None
+        
+        prompt = f"""Enhance this query for better document retrieval:
+
+    Original Query: "{query}"
+
+    Analyze the user's intent and add relevant search terms that would appear in business documents.
+    Consider synonyms, related concepts, and alternative phrasings that might be used in formal documentation.
+
+    Return only the enhanced query, or "NONE" if the original is sufficient.
+
+    Enhanced Query:"""
+
+        try:
+            def make_claude_call():
+                if not self.claude_client:
+                    return None
+                return self.claude_client.messages.create(
+                    model="claude-3-5-haiku-20241022",
+                    max_tokens=100,
+                    temperature=0.1,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+            
+            response = self._rate_limited_api_call(make_claude_call)
+            
+            if response:
+                enhanced = "".join([
+                    block.text for block in response.content 
+                    if hasattr(block, 'text')
+                ]).strip()
+                
+                return None if enhanced.upper() == "NONE" else enhanced
+                
+        except Exception as e:
+            logger.warning(f"Semantic query enhancement failed: {e}")
+        
+        return None
+
     def _query_vector_only(self, query: str, top_k: int) -> Dict[str, Any]:
         """Query using vector similarity only"""
         try:
@@ -1560,7 +1916,14 @@ class AnthropicContextualRAGService:
                     "error": "Embedding model not initialized. Please check your sentence-transformers installation."
                 }
             
-            query_embedding = self.embedding_model.encode(query).tolist()
+            # FIX: Convert numpy array to Python list for ChromaDB
+            query_embedding_raw = self.embedding_model.encode([query], show_progress_bar=False)
+            
+            # Ensure it's a Python list, not numpy array
+            if hasattr(query_embedding_raw, 'tolist'):
+                query_embedding = query_embedding_raw[0].tolist()  # Convert to list
+            else:
+                query_embedding = list(query_embedding_raw[0])  # Fallback conversion
             
             # Query ChromaDB
             if self.collection is None:
@@ -1569,17 +1932,17 @@ class AnthropicContextualRAGService:
                     "error": "ChromaDB collection not initialized"
                 }
             results = self.collection.query(
-                query_embeddings=[query_embedding],
+                query_embeddings=[query_embedding],  # Now properly formatted as list
                 n_results=top_k,
                 include=["documents", "metadatas", "distances"]
             )
 
             results_dict = {
-            "documents": results.get("documents", []),
-            "metadatas": results.get("metadatas", []),
-            "distances": results.get("distances", []),
-            "ids": results.get("ids", [])
-        }
+                "documents": results.get("documents", []),
+                "metadatas": results.get("metadatas", []),
+                "distances": results.get("distances", []),
+                "ids": results.get("ids", [])
+            }
             
             # Format the results
             formatted_results = self._format_query_results(results_dict, query, "vector_only")
@@ -1592,7 +1955,7 @@ class AnthropicContextualRAGService:
             return formatted_results
         
         except Exception as e:
-            logger.error(f"❌ Error in vector query: {e}")
+            logger.error(f"Error in vector query: {e}")
             return {"success": False, "error": str(e)}
     
     def _enhance_query_with_ai(self, query: str) -> str:
@@ -1639,79 +2002,403 @@ class AnthropicContextualRAGService:
                     return enhanced_query.strip()
         
         except Exception as e:
-            logger.warning(f"⚠️ Query enhancement failed: {e}")
+            logger.warning(f"Ã¢Å¡ Ã¯Â¸Â Query enhancement failed: {e}")
         
         return query
 
+    
     def extract_direct_answer(self, query: str, search_results: List[Dict[str, Any]]) -> str:
-        """Extract direct answer from search results using AI"""
+        """AI-powered direct answer extraction with semantic understanding"""
         if not self.claude_client or not search_results:
             return "Information not found in the documents."
         
-        # Combine top 3 results
+        # Combine top results with better context
         context = "\n\n---\n\n".join([
-            f"Source: {r['source_file']}\nContent: {r['content'][:500]}"
+            f"Source: {r['source_file']}\nTitle: {r.get('title', 'N/A')}\nStatus: {r.get('status', 'N/A')}\nContent: {r['content'][:600]}"
             for r in search_results[:3]
         ])
         
-        prompt = f"""Based on these search results from corporate banking and fintech documents, provide a direct answer to the user's question.
+        prompt = f"""Based on these document excerpts, provide a direct, accurate answer to the user's question.
 
     Question: "{query}"
 
-    Search Results:
+    Document Context:
     {context}
 
     Instructions:
-    1. Give a direct, specific answer if found in the results
-    2. Quote exact information (names, amounts, contact details, procedures)
-    3. If no specific answer exists, say "Information not available in the provided documents"
-    4. For banking/fintech context, prioritize accuracy of financial terms, procedures, and compliance information
-    5. Keep the answer concise and factual
+    1. Provide a specific, factual answer based ONLY on the provided documents
+    2. If the answer involves structured information (names, dates, amounts, statuses), quote them exactly
+    3. If no specific answer exists, say "The provided documents don't contain specific information about this question"
+    4. For multi-part questions, address each part if information is available
+    5. Keep the response concise and directly relevant to the question
 
     Answer:"""
 
         try:
             def make_claude_call():
-                if self.claude_client is None:
-                    raise ValueError("Claude client not initialized")
+                if not self.claude_client:
+                    return ""
                 return self.claude_client.messages.create(
                     model="claude-3-5-haiku-20241022",
-                    max_tokens=200,
+                    max_tokens=300,
                     temperature=0.1,
                     messages=[{"role": "user", "content": prompt}]
                 )
             
             response = self._rate_limited_api_call(make_claude_call)
             
-            if response is not None:
-                # Handle the response properly
-                enhanced_query = ""
-                for block in response.content:
-                    if hasattr(block, 'text'):
-                        enhanced_query += block.text
-                    elif isinstance(block, str):
-                        enhanced_query += block
+            if response:
+                answer = "".join([
+                    block.text for block in response.content 
+                    if hasattr(block, 'text')
+                ]).strip()
                 
-                if enhanced_query.strip():
-                    return enhanced_query.strip()
-        
+                return answer if answer else "Information not available in the provided documents."
+            
         except Exception as e:
-            logger.warning(f"⚠️ Query enhancement failed: {e}")
+            logger.warning(f"Direct answer extraction failed: {e}")
         
-        return query
+        return "Unable to generate answer from the provided documents."
     
+    def _filter_and_extract_relevant_content(self, documents: List[Dict], query: str) -> List[Dict]:
+        """Enhanced content filtering and extraction based on query intent"""
+        
+        # Add null safety check first
+        if not self.claude_client or not documents:
+            return documents
+        
+        # Analyze query to determine extraction intent
+        extraction_prompt = f"""Analyze this query to determine what specific information should be extracted:
+
+    Query: "{query}"
+
+    Determine the extraction intent:
+    1. PROJECT_OVERVIEW - user wants summary/description of specific project
+    2. PROJECT_LIST_BY_STATUS - user wants list of projects with specific status  
+    3. PROJECT_FEATURES - user wants detailed features/capabilities
+    4. PROJECT_REASONS - user wants reasons for status (halted, etc.)
+
+    Respond with just the intent type and target (if specific project mentioned):
+    Format: "INTENT_TYPE|target_project_name" or just "INTENT_TYPE" """
+
+        try:
+            # Fixed: Use the _rate_limited_api_call method correctly with proper Claude client check
+            def make_claude_call():
+                if self.claude_client is None:
+                    raise ValueError("Claude client not initialized")
+                return self.claude_client.messages.create(
+                    model="claude-3-5-haiku-20241022",
+                    max_tokens=100,
+                    temperature=0.1,
+                    messages=[{"role": "user", "content": extraction_prompt}]
+                )
+            
+            response = self._rate_limited_api_call(make_claude_call, "content_filtering")
+            
+            if not response:
+                return documents
+                
+            intent_text = "".join([
+                block.text for block in response.content 
+                if hasattr(block, 'text')
+            ]).strip()
+            
+            # Filter documents based on intent
+            return self._apply_content_filtering(documents, intent_text, query)
+            
+        except Exception as e:
+            logger.warning(f"Content filtering failed: {e}")
+            return documents
+
+    def _apply_content_filtering(self, documents: List[Dict], intent_text: str, query: str) -> List[Dict]:
+        """Apply intelligent content filtering based on intent"""
+        
+        filtered_docs = []
+        
+        for doc in documents:
+            content = doc.get("content", "")
+            
+            if "|" in intent_text:
+                intent, target = intent_text.split("|", 1)
+                target = target.strip().lower()
+                
+                # For specific project queries, only include content about that project
+                if target in content.lower():
+                    # Extract only the relevant section
+                    filtered_content = self._extract_project_section(content, target)
+                    if filtered_content:
+                        doc_copy = doc.copy()
+                        doc_copy["content"] = filtered_content
+                        doc_copy["filtered"] = True
+                        filtered_docs.append(doc_copy)
+            else:
+                # For general queries, apply intent-based filtering
+                intent = intent_text.strip()
+                
+                if intent == "PROJECT_LIST_BY_STATUS":
+                    # Include content that has clear status indicators
+                    if any(status in content.lower() for status in ["status:", "in progress", "completed", "halted"]):
+                        filtered_docs.append(doc)
+                else:
+                    filtered_docs.append(doc)
+        
+        return filtered_docs if filtered_docs else documents
+
+    def _enhanced_project_aware_chunking(self, text: str, file_path: Path) -> List[Dict[str, Any]]:
+        """Simplified project-aware chunking focused on the core issue"""
+        
+        # Simple project detection using clear markers
+        lines = text.split('\n')
+        project_boundaries = []
+        
+        # Find clear project boundaries
+        for i, line in enumerate(lines):
+            line_clean = line.strip()
+            # Look for numbered projects or clear status markers
+            if (re.match(r'^\d+\.', line_clean) or 
+                line_clean.startswith('**') and ('Status:' in ''.join(lines[i:i+5]))):
+                project_boundaries.append(i)
+        
+        chunks = []
+        
+        if len(project_boundaries) < 2:
+            # If no clear projects found, use standard chunking
+            return self._chunk_text(text, file_path)
+        
+        # Create one chunk per project section
+        for i in range(len(project_boundaries)):
+            start = project_boundaries[i]
+            end = project_boundaries[i + 1] if i + 1 < len(project_boundaries) else len(lines)
+            
+            project_lines = lines[start:end]
+            project_content = '\n'.join(project_lines)
+            
+            # Extract basic project info
+            project_name = "Unknown Project"
+            project_status = "unknown"
+            
+            for line in project_lines[:10]:  # Check first 10 lines only
+                # Extract project name from first line
+                if i == 0 or line.strip().startswith(('**', f'{i}.')):
+                    clean_line = re.sub(r'^\d+\.\s*|\*\*', '', line.strip())
+                    if clean_line and len(clean_line) < 100:
+                        project_name = clean_line.replace('**', '').strip()
+                
+                # Extract status
+                status_match = re.search(r'Status:\s*(In Progress|Completed|Halted)', line)
+                if status_match:
+                    project_status = status_match.group(1)
+                    break
+            
+            # Only create separate chunks if content is substantial
+            if len(project_content.strip()) > 50:
+                chunks.append({
+                    "content": project_content,
+                    "type": "project_section",
+                    "size": len(project_content),
+                    "optimized_for_context": True,
+                    "project_metadata": {
+                        "project_name": project_name,
+                        "status": project_status,
+                        "has_complete_info": "Status:" in project_content
+                    }
+                })
+        
+        return chunks if chunks else self._chunk_text(text, file_path)
+
+    def _identify_projects_in_document(self, text: str) -> List[Dict[str, Any]]:
+        """Identify individual projects and extract complete information"""
+        
+        projects = []
+        lines = text.split('\n')
+        current_project = None
+        
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            
+            # Detect project start (numbered projects or clear project headers)
+            project_match = re.match(r'^(\d+)\.\s*(.+)', line_stripped)
+            if project_match:
+                # Save previous project if exists
+                if current_project:
+                    projects.append(current_project)
+                
+                # Start new project
+                project_number = project_match.group(1)
+                project_name = project_match.group(2)
+                
+                current_project = {
+                    "number": project_number,
+                    "name": project_name,
+                    "start_line": i,
+                    "content_lines": [line],
+                    "status": "unknown",
+                    "product_owner": None,
+                    "is_complete": False
+                }
+            
+            # Detect project by status patterns (for projects without numbers)
+            elif re.search(r'Status:\s*(In Progress|Completed|Halted)', line_stripped):
+                m = re.search(r'Status:\s*(In Progress|Completed|Halted)', line_stripped)
+                if m:
+                    status = m.group(1)
+                else:
+                    status = "unknown"
+
+                if not current_project:
+                    # Look backward for project name
+                    project_name = self._find_project_name_backward(lines, i)
+                    current_project = {
+                        "number": None,
+                        "name": project_name,
+                        "start_line": max(0, i-2),
+                        "content_lines": lines[max(0, i-2):i+1],
+                        "status": status,
+                        "product_owner": None,
+                        "is_complete": False
+                    }
+                else:
+                    current_project["status"] = status
+                    current_project["content_lines"].append(line)
+            
+            # Continue collecting content for current project
+            elif current_project:
+                current_project["content_lines"].append(line)
+                
+                # Extract product owner if found
+                if "Product Owner:" in line:
+                    owner_match = re.search(r'Product Owner:\s*(.+)', line)
+                    if owner_match:
+                        current_project["product_owner"] = owner_match.group(1).strip()
+                
+                # Check if we've reached next project or end
+                if (i < len(lines) - 1 and 
+                    (re.match(r'^\d+\.', lines[i+1].strip()) or 
+                    lines[i+1].strip().startswith('**') and 'Status:' in ''.join(lines[i+1:i+5]))):
+                    # End current project
+                    projects.append(current_project)
+                    current_project = None
+        
+        # Add final project if exists
+        if current_project:
+            projects.append(current_project)
+        
+        # Process projects to create complete content
+        processed_projects = []
+        for project in projects:
+            full_content = '\n'.join(project["content_lines"])
+            
+            # Determine if project info is complete
+            has_description = "Description:" in full_content
+            has_status = project["status"] != "unknown"
+            has_owner = project["product_owner"] is not None
+            
+            processed_project = {
+                **project,
+                "full_content": full_content,
+                "is_complete": has_description and has_status,
+                "content_quality": "high" if (has_description and has_status and has_owner) else "medium"
+            }
+            processed_projects.append(processed_project)
+        
+        return processed_projects
+
+    def _find_project_name_backward(self, lines: List[str], current_index: int) -> str:
+        """Find project name by looking backward from status line"""
+        
+        for i in range(current_index - 1, max(0, current_index - 5), -1):
+            line = lines[i].strip()
+            
+            # Look for project names in headers or titles
+            if line.startswith('**') and line.endswith('**'):
+                return line.replace('**', '').strip()
+            elif re.match(r'^\d+\.\s*(.+)', line):
+                m = re.match(r'^\d+\.\s*(.+)', line)
+                if m:
+                    return m.group(1).strip()
+            elif len(line) > 10 and len(line) < 100 and not line.endswith(':'):
+                return line
+        
+        return "Unknown Project"
+
+    def _create_project_summary(self, projects: List[Dict]) -> str:
+        """Create comprehensive project summary for better retrieval"""
+        
+        summary_parts = ["PROJECT PORTFOLIO SUMMARY\n"]
+        
+        # Group by status
+        by_status = self._group_projects_by_status(projects)
+        
+        for status, project_list in by_status.items():
+            if project_list:
+                summary_parts.append(f"\n{status.upper()} PROJECTS ({len(project_list)}):")
+                for project in project_list:
+                    project_line = f"- {project['name']}"
+                    if project.get('number'):
+                        project_line = f"- {project['number']}. {project['name']}"
+                    if project.get('product_owner'):
+                        project_line += f" (Owner: {project['product_owner']})"
+                    summary_parts.append(project_line)
+        
+        summary_parts.append(f"\nTOTAL PROJECTS: {len(projects)}")
+        
+        return '\n'.join(summary_parts)
+
+    def _group_projects_by_status(self, projects: List[Dict]) -> Dict[str, List[Dict]]:
+        """Group projects by their status"""
+        
+        grouped = {
+            "in_progress": [],
+            "completed": [],
+            "halted": []
+        }
+        
+        for project in projects:
+            status = project["status"].lower()
+            if "in progress" in status:
+                grouped["in_progress"].append(project)
+            elif "completed" in status:
+                grouped["completed"].append(project)
+            elif "halted" in status:
+                grouped["halted"].append(project)
+        
+        return grouped
+
+    def _extract_project_section(self, content: str, project_name: str) -> str:
+        """Extract specific project section from mixed content"""
+        
+        lines = content.split('\n')
+        project_section = []
+        in_target_section = False
+        
+        for line in lines:
+            line_lower = line.lower()
+            
+            # Start of target project section
+            if project_name in line_lower and any(indicator in line_lower for indicator in ["status:", "description:", "project"]):
+                in_target_section = True
+                project_section.append(line)
+            # End of section (next project or major break)
+            elif in_target_section and (
+                line.startswith("**") or 
+                "status:" in line_lower and project_name not in line_lower or
+                line.strip().isdigit() and line.strip() + "." in content
+            ):
+                break
+            # Continue collecting lines in section
+            elif in_target_section:
+                project_section.append(line)
+        
+        return '\n'.join(project_section) if project_section else content
+   
     def _query_bm25_only(self, query: str, top_k: int) -> Dict[str, Any]:
         """Query using BM25 keyword search only with enhanced preprocessing"""
         try:
             if not self.bm25_index or not self.bm25_documents:
-                return {
-                    "success": True,
-                    "documents": [],
-                    "message": "No BM25 index available"
-                }
+                return {"success": True, "documents": [], "message": "No BM25 index available"}
             
-            # Enhanced query preprocessing
-            enhanced_query = self._enhance_query_with_ai(query)
+            # CHANGE this line:
+            enhanced_query = self._enhance_query_for_retrieval(query) or query
             
             # Tokenize enhanced query
             query_tokens = enhanced_query.lower().split()
@@ -1757,7 +2444,7 @@ class AnthropicContextualRAGService:
             return results
             
         except Exception as e:
-            logger.error(f"❌ Error in BM25 query: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error in BM25 query: {e}")
             return {"success": False, "error": str(e)}
     
     def _query_hybrid(self, query: str, top_k: int) -> Dict[str, Any]:
@@ -1796,7 +2483,7 @@ class AnthropicContextualRAGService:
             return results
         
         except Exception as e:
-            logger.error(f"❌ Error in hybrid query: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error in hybrid query: {e}")
             return {"success": False, "error": str(e)}
     
     def _query_contextual_hybrid(self, query: str, top_k: int) -> Dict[str, Any]:
@@ -1840,7 +2527,7 @@ class AnthropicContextualRAGService:
             return results
             
         except Exception as e:
-            logger.error(f"❌ Error in contextual hybrid query: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error in contextual hybrid query: {e}")
             return {"success": False, "error": str(e)}
     
     def _enhance_query_with_context(self, query: str) -> str:
@@ -1891,7 +2578,7 @@ class AnthropicContextualRAGService:
             return reranked_docs[:top_k]
             
         except Exception as e:
-            logger.error(f"❌ Error in contextual reranking: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error in contextual reranking: {e}")
             return documents[:top_k]
     
     def _reciprocal_rank_fusion(self, vector_results: List[Dict[str, Any]], 
@@ -1940,7 +2627,7 @@ class AnthropicContextualRAGService:
             return final_results[:top_k]
             
         except Exception as e:
-            logger.error(f"❌ Error in reciprocal rank fusion: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error in reciprocal rank fusion: {e}")
             return (vector_results + bm25_results)[:top_k]
     
     def _format_query_results(self, results: Dict[str, Any], query: str, method: str) -> Dict[str, Any]:
@@ -1983,13 +2670,15 @@ class AnthropicContextualRAGService:
                 actual_content = self._extract_actual_content(doc)
                 
                 formatted_results.append({
-                    "content": actual_content,  # Show actual content, not contextual
-                    "full_content": doc,       # Keep full contextual content available
+                    "content": actual_content,       # Show actual content, not contextual
+                    "full_content": doc,             # Keep full contextual content available
                     "metadata": metadata,
                     "similarity_score": similarity_score,
                     "distance": distance,
                     "source_file": metadata.get("source_file", "Unknown") if metadata else "Unknown",
-                    "document_id": metadata.get("document_id", "Unknown") if metadata else "Unknown",
+                    "document_id": metadata.get("document_id", None) if metadata else None,
+                    "title": metadata.get("title") if metadata else None,
+                    "status": metadata.get("status") if metadata else None,
                     "has_context": metadata.get("has_context", False) if metadata else False,
                     "context_added": metadata.get("context_added", 0) if metadata else 0
                 })
@@ -2003,7 +2692,7 @@ class AnthropicContextualRAGService:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error formatting results: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error formatting results: {e}")
             return {"success": False, "error": str(e)}
     
     def _extract_actual_content(self, contextual_content: str) -> str:
@@ -2041,7 +2730,7 @@ class AnthropicContextualRAGService:
             return contextual_content.strip()
             
         except Exception as e:
-            logger.error(f"❌ Error extracting actual content: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error extracting actual content: {e}")
             return contextual_content
     
     def _update_file_versions(self, file_stem: str, doc_id: str, file_hash: str, processing_record: Dict[str, Any]):
@@ -2160,13 +2849,11 @@ class AnthropicContextualRAGService:
                 "totals": self.processing_stats.get("totals", {}),
                 "timestamp": datetime.now().isoformat()
             }
-
-            stats["api_usage"] = self.get_api_usage_statistics()
             
             return stats
             
         except Exception as e:
-            logger.error(f"❌ Error getting processing stats: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error getting processing stats: {e}")
             return {"error": str(e)}
     
     def get_processed_files_list(self) -> List[Dict[str, Any]]:
@@ -2205,7 +2892,7 @@ class AnthropicContextualRAGService:
             return sorted(files_list, key=lambda x: x.get("processed_date", ""), reverse=True)
             
         except Exception as e:
-            logger.error(f"❌ Error getting processed files list: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error getting processed files list: {e}")
             return []
     
     def get_version_summary(self) -> Dict[str, Any]:
@@ -2242,24 +2929,24 @@ class AnthropicContextualRAGService:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error getting version summary: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error getting version summary: {e}")
             return {"error": str(e)}
     
     # Utility methods
     def set_duplicate_mode(self, mode: DuplicateHandlingMode):
         """Change duplicate handling mode"""
         self.duplicate_mode = mode
-        logger.info(f"🔄 Duplicate handling mode changed to: {mode.value}")
+        logger.info(f"Ã°Å¸â€â€ž Duplicate handling mode changed to: {mode.value}")
     
     def set_chunking_strategy(self, strategy: ChunkingStrategy):
         """Change chunking strategy"""
         self.chunking_strategy = strategy
-        logger.info(f"🔄 Chunking strategy changed to: {strategy.value}")
+        logger.info(f"Ã°Å¸â€â€ž Chunking strategy changed to: {strategy.value}")
     
     def set_retrieval_strategy(self, strategy: RetrievalStrategy):
         """Change retrieval strategy"""
         self.retrieval_strategy = strategy
-        logger.info(f"🔄 Retrieval strategy changed to: {strategy.value}")
+        logger.info(f"Ã°Å¸â€â€ž Retrieval strategy changed to: {strategy.value}")
     
     def cleanup_old_versions(self, keep_latest_n: int = 2) -> Dict[str, Any]:
         """Clean up old versions to optimize storage"""
@@ -2307,7 +2994,7 @@ class AnthropicContextualRAGService:
                                     del self.bm25_metadata[i]
                                     
                         except Exception as e:
-                            logger.warning(f"⚠️ Could not remove chunks for {doc_id}: {e}")
+                            logger.warning(f"Ã¢Å¡ Ã¯Â¸Â Could not remove chunks for {doc_id}: {e}")
                 
                 # Update file versions tracking
                 self.file_versions[file_stem] = versions_to_keep
@@ -2334,7 +3021,7 @@ class AnthropicContextualRAGService:
             # Save updated logs
             self._save_processing_logs()
             
-            logger.info(f"🧹 Cleanup complete: removed {removed_count} chunks from old versions")
+            logger.info(f"Ã°Å¸Â§Â¹ Cleanup complete: removed {removed_count} chunks from old versions")
             
             return {
                 "success": True,
@@ -2344,164 +3031,28 @@ class AnthropicContextualRAGService:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error during cleanup: {e}")
+            logger.error(f"Ã¢ÂÅ’ Error during cleanup: {e}")
             return {
                 "success": False,
                 "error": str(e)
             }
     
-    def health_check(self) -> Dict[str, Any]:
-        """Comprehensive health check for Anthropic-style RAG service"""
-        try:
-            # Check ChromaDB status
-            chroma_status = "not_initialized"
-            documents_count = 0
-            
-            if self.collection is not None:
-                try:
-                    documents_count = self.collection.count()
-                    chroma_status = "healthy"
-                except Exception as chroma_error:
-                    chroma_status = f"error: {str(chroma_error)}"
-                    documents_count = 0
-            
-            # Check embedding model
-            embedding_status = "healthy" if self.embedding_model else "not_initialized"
-            
-            # Check Claude API
-            claude_status = "healthy" if self.claude_client else "not_available"
-            
-            # Check BM25 index
-            bm25_status = "healthy" if self.bm25_index else "not_available"
-            
-            return {
-                "status": "healthy" if all(s in ["healthy", "not_available"] for s in [chroma_status, embedding_status]) else "degraded",
-                "components": {
-                    "chromadb": chroma_status,
-                    "embedding_model": embedding_status,
-                    "claude_api": claude_status,
-                    "bm25_index": bm25_status,
-                    "documents_directory": "exists" if self.documents_dir.exists() else "missing",
-                    "processing_log": "exists" if self.processing_log_file.exists() else "missing",
-                    "versions_log": "exists" if self.versions_log_file.exists() else "missing",
-                    "contextual_cache": "exists" if self.contextual_cache_file.exists() else "missing"
-                },
-                "anthropic_capabilities": {
-                    "contextual_embeddings": True,
-                    "contextual_bm25": bm25_status == "healthy",
-                    "hybrid_search": True,
-                    "contextual_enhancement": claude_status == "healthy",
-                    "reciprocal_rank_fusion": True,
-                    "contextual_reranking": True,
-                    "ai_powered_content_detection": claude_status == "healthy",
-                    "intelligent_query_enhancement": claude_status == "healthy",
-                    "direct_answer_extraction": claude_status == "healthy"
-                },
-                "capabilities": {
-                    "pdf_support": True,
-                    "docx_support": True,
-                    "text_support": True,
-                    "markdown_support": True,
-                    "duplicate_prevention": True,
-                    "version_control": True,
-                    "overwrite_support": True,
-                    "semantic_chunking": True,
-                    "vector_search": True,
-                    "keyword_search": bm25_status == "healthy",
-                    "hybrid_retrieval": True
-                },
-                "configuration": {
-                    "duplicate_handling_mode": self.duplicate_mode.value,
-                    "chunking_strategy": self.chunking_strategy.value,
-                    "retrieval_strategy": self.retrieval_strategy.value,
-                    "embedding_model": self.embedding_model_name,
-                    "chunk_size": self.chunk_size,
-                    "chunk_overlap": self.chunk_overlap,
-                    "context_tokens": self.context_tokens,
-                    "collection_name": self.collection_name
-                },
-                "statistics": {
-                    "documents_in_vector_db": documents_count,
-                    "documents_in_bm25_index": len(self.bm25_documents),
-                    "processed_files_tracked": len(self.processed_files_log),
-                    "file_groups_tracked": len(self.file_versions),
-                    "contextual_cache_entries": len(self.contextual_cache),
-                    "supported_extensions": list(self.supported_extensions)
-                },
-                "paths": {
-                    "documents_directory": str(self.documents_dir),
-                    "chromadb_path": str(self.chroma_db_path),
-                    "processing_log": str(self.processing_log_file),
-                    "versions_log": str(self.versions_log_file),
-                    "bm25_index_file": str(self.bm25_index_file),
-                    "contextual_cache_file": str(self.contextual_cache_file)
-                },
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ Health check failed: {e}")
-            return {
-                "status": "error",
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
-    def get_api_usage_statistics(self) -> Dict[str, Any]:
-        """Get API usage statistics"""
-        return {
-            "api_calls_made": self.api_calls_count,
-            "api_errors": self.api_errors_count,
-            "success_rate": round((self.api_calls_count - self.api_errors_count) / max(self.api_calls_count, 1) * 100, 2),
-            "rate_limit_delay": self.api_call_delay,
-            "cache_hits": len(self.contextual_cache),
-            "last_api_call": datetime.fromtimestamp(self.last_api_call_time).isoformat() if self.last_api_call_time > 0 else "Never"
-        }
-    
-    def get_rag_cost_statistics(self) -> Dict[str, Any]:
-        """Get detailed cost statistics for RAG service operations"""
-        return {
-            "service": "rag_service",
-            "api_key_used": "RAG_API_KEY",
-            "total_api_calls": self.rag_api_calls_count,
-            "total_tokens_used": self.rag_tokens_used,
-            "estimated_total_cost": round(self.rag_cost_estimate, 4),
-            "cost_breakdown": {
-                operation: {
-                    "calls": data["calls"],
-                    "tokens": data["tokens"],
-                    "cost": round(data["cost"], 4),
-                    "avg_cost_per_call": round(data["cost"] / max(data["calls"], 1), 4),
-                    "avg_tokens_per_call": round(data["tokens"] / max(data["calls"], 1), 1)
-                }
-                for operation, data in self.operation_costs.items()
-            },
-            "success_rate": round((self.rag_api_calls_count - self.api_errors_count) / max(self.rag_api_calls_count, 1) * 100, 2),
-            "rate_limit_delay": self.api_call_delay,
-            "timestamp": datetime.now().isoformat()
-        }
-
-    def set_api_rate_limit(self, delay_seconds: float):
-        """Set the delay between API calls"""
-        self.api_call_delay = max(0.5, delay_seconds)  
-        logger.info(f"🔧 API rate limit set to {self.api_call_delay}s between calls")
-
-    
 # Terminal interface for manual execution
 def print_statistics(rag_service: AnthropicContextualRAGService):
     """Print processing statistics in terminal-friendly format"""
     print("\n" + "="*80)
-    print("📊 ANTHROPIC CONTEXTUAL RAG STATISTICS")
+    print("Ã°Å¸â€œÅ  ANTHROPIC CONTEXTUAL RAG STATISTICS")
     print("="*80)
     
     stats = rag_service.get_processing_statistics()
     
     if "error" in stats:
-        print(f"❌ Error: {stats['error']}")
+        print(f"Ã¢ÂÅ’ Error: {stats['error']}")
         return
     
     # Processing Summary
     summary = stats.get("processing_summary", {})
-    print(f"\n📈 Processing Summary:")
+    print(f"\nÃ°Å¸â€œË† Processing Summary:")
     print(f"   Total Files Processed: {summary.get('total_files_processed', 0)}")
     print(f"   Successful: {summary.get('successful_processing', 0)}")
     print(f"   Failed: {summary.get('failed_processing', 0)}")
@@ -2511,23 +3062,23 @@ def print_statistics(rag_service: AnthropicContextualRAGService):
     
     # Anthropic Features
     anthropic_features = stats.get("anthropic_features", {})
-    print(f"\n🧠 Anthropic Features:")
-    print(f"   Contextual Embeddings: {'✅' if anthropic_features.get('contextual_embeddings') else '❌'}")
-    print(f"   Contextual BM25: {'✅' if anthropic_features.get('contextual_bm25') else '❌'}")
-    print(f"   Hybrid Search: {'✅' if anthropic_features.get('hybrid_search') else '❌'}")
-    print(f"   Claude Enhancement: {'✅' if anthropic_features.get('claude_enhancement') else '❌'}")
+    print(f"\nÃ°Å¸Â§  Anthropic Features:")
+    print(f"   Contextual Embeddings: {'Ã¢Å“â€¦' if anthropic_features.get('contextual_embeddings') else 'Ã¢ÂÅ’'}")
+    print(f"   Contextual BM25: {'Ã¢Å“â€¦' if anthropic_features.get('contextual_bm25') else 'Ã¢ÂÅ’'}")
+    print(f"   Hybrid Search: {'Ã¢Å“â€¦' if anthropic_features.get('hybrid_search') else 'Ã¢ÂÅ’'}")
+    print(f"   Claude Enhancement: {'Ã¢Å“â€¦' if anthropic_features.get('claude_enhancement') else 'Ã¢ÂÅ’'}")
     print(f"   Contextual Cache Size: {anthropic_features.get('contextual_cache_size', 0)}")
     
     # Storage Info
     storage = stats.get("storage_info", {})
-    print(f"\n💾 Storage Information:")
+    print(f"\nÃ°Å¸â€™Â¾ Storage Information:")
     print(f"   Vector Documents: {storage.get('vector_documents_count', 0)}")
     print(f"   BM25 Documents: {storage.get('bm25_documents_count', 0)}")
     print(f"   Total File Size: {storage.get('total_file_size_mb', 0)} MB")
     
     # Configuration
     config = stats.get("configuration", {})
-    print(f"\n⚙️ Configuration:")
+    print(f"\nÃ¢Å¡â„¢Ã¯Â¸Â Configuration:")
     print(f"   Retrieval Strategy: {config.get('retrieval_strategy', 'Unknown')}")
     print(f"   Chunking Strategy: {config.get('chunking_strategy', 'Unknown')}")
     print(f"   Embedding Model: {config.get('embedding_model', 'Unknown')}")
@@ -2537,7 +3088,7 @@ def print_statistics(rag_service: AnthropicContextualRAGService):
 def print_processed_files(rag_service: AnthropicContextualRAGService):
     """Print processed files list in terminal-friendly format"""
     print("\n" + "="*80)
-    print("📁 PROCESSED FILES ")
+    print("Ã°Å¸â€œÂ PROCESSED FILES ")
     print("="*80)
     
     files = rag_service.get_processed_files_list()
@@ -2550,8 +3101,8 @@ def print_processed_files(rag_service: AnthropicContextualRAGService):
     print("-" * 80)
     
     for i, file_info in enumerate(files, 1):
-        status_icon = "✅" if file_info.get("status") == "success" else "❌"
-        context_icon = "🧠" if file_info.get("contextual_enhanced") else "📄"
+        status_icon = "Ã¢Å“â€¦" if file_info.get("status") == "success" else "Ã¢ÂÅ’"
+        context_icon = "Ã°Å¸Â§ " if file_info.get("contextual_enhanced") else "Ã°Å¸â€œâ€ž"
         
         print(f"\n{i}. {status_icon} {context_icon} {file_info.get('filename', 'Unknown')}")
         print(f"   Status: {file_info.get('status', 'Unknown')}")
@@ -2567,17 +3118,17 @@ def print_processed_files(rag_service: AnthropicContextualRAGService):
 def print_version_summary(rag_service: AnthropicContextualRAGService):
     """Print version summary in terminal-friendly format"""
     print("\n" + "="*80)
-    print("📋 VERSION SUMMARY (ANTHROPIC ENHANCED)")
+    print("Ã°Å¸â€œâ€¹ VERSION SUMMARY (ANTHROPIC ENHANCED)")
     print("="*80)
     
     version_info = rag_service.get_version_summary()
     
     if "error" in version_info:
-        print(f"❌ Error: {version_info['error']}")
+        print(f"Ã¢ÂÅ’ Error: {version_info['error']}")
         return
     
     summary = version_info.get("summary", {})
-    print(f"\n📊 Summary:")
+    print(f"\nÃ°Å¸â€œÅ  Summary:")
     print(f"   Total File Groups: {summary.get('total_file_groups', 0)}")
     print(f"   Files with Multiple Versions: {summary.get('files_with_multiple_versions', 0)}")
     print(f"   Total Versions: {summary.get('total_versions', 0)}")
@@ -2586,11 +3137,11 @@ def print_version_summary(rag_service: AnthropicContextualRAGService):
     
     file_groups = version_info.get("file_groups", {})
     if file_groups:
-        print(f"\n📁 File Groups:")
+        print(f"\nÃ°Å¸â€œÂ File Groups:")
         print("-" * 80)
         
         for file_stem, info in file_groups.items():
-            versions_icon = "📚" if info.get("has_multiple_versions") else "📄"
+            versions_icon = "Ã°Å¸â€œÅ¡" if info.get("has_multiple_versions") else "Ã°Å¸â€œâ€ž"
             enhanced_count = info.get("contextual_enhanced_versions", 0)
             
             print(f"\n{versions_icon} {file_stem}")
@@ -2622,8 +3173,7 @@ def main():
     parser.add_argument("--clear-cache", action="store_true", help="Clear model cache")
     parser.add_argument("--quiet", "-q", action="store_true", help="Suppress initialization output")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed initialization output")
-    parser.add_argument("--costs", action="store_true", help="Show API cost statistics")
-
+    
     args = parser.parse_args()
     
     # Convert string arguments to enums
@@ -2645,7 +3195,7 @@ def main():
     try:
         # Initialize Anthropic RAG service
         if not use_quiet_mode:
-            print("🚀 Initializing Anthropic Contextual RAG Service...")
+            print("Ã°Å¸Å¡â‚¬ Initializing Anthropic Contextual RAG Service...")
             
         rag_service = AnthropicContextualRAGService(
             documents_directory=args.docs_dir,
@@ -2657,35 +3207,35 @@ def main():
         )
         
         if not use_quiet_mode:
-            print("✅ Anthropic RAG Service initialized successfully!")
+            print("Ã¢Å“â€¦ Anthropic RAG Service initialized successfully!")
         
         # Execute requested operations
         if args.check_cache:
             if not use_quiet_mode:
-                print("\n🔍 Checking model cache status...")
+                print("\nÃ°Å¸â€Â Checking model cache status...")
             cache_path = rag_service._get_model_cache_path()
             is_cached = rag_service._check_model_cache(cache_path)
-            print(f"📁 Cache path: {cache_path}")
-            print(f"✅ Is cached: {'Yes' if is_cached else 'No'}")
+            print(f"Ã°Å¸â€œÂ Cache path: {cache_path}")
+            print(f"Ã¢Å“â€¦ Is cached: {'Yes' if is_cached else 'No'}")
 
         if args.clear_cache:
             if not use_quiet_mode:
-                print("\n🗑️ Clearing model cache...")
+                print("\nÃ°Å¸â€”â€˜Ã¯Â¸Â Clearing model cache...")
             result = rag_service._clear_model_cache()
-            print(f"✅ Cache cleared: {'Success' if result else 'Failed'}")
+            print(f"Ã¢Å“â€¦ Cache cleared: {'Success' if result else 'Failed'}")
         
         if args.process:
-            print("\n🧠 Processing all documents with Anthropic's Contextual Retrieval...")
+            print("\nÃ°Å¸Â§  Processing all documents with Anthropic's Contextual Retrieval...")
             result = rag_service.process_all_documents()
             if result["success"]:
-                print(f"✅ Processing completed successfully!")
+                print(f"Ã¢Å“â€¦ Processing completed successfully!")
                 print(f"   Files processed: {result['files_processed']}")
                 print(f"   Files skipped: {result['files_skipped']}")
                 print(f"   Files overwritten: {result['files_overwritten']}")
                 print(f"   Contextual enhancements: {result.get('contextual_enhancements', 0)}")
                 print(f"   Processing time: {result['processing_time']} seconds")
             else:
-                print(f"❌ Processing failed: {result.get('error', 'Unknown error')}")
+                print(f"Ã¢ÂÅ’ Processing failed: {result.get('error', 'Unknown error')}")
         
         if args.stats:
             print_statistics(rag_service)
@@ -2697,12 +3247,12 @@ def main():
             print_version_summary(rag_service)
         
         if args.query:
-            print(f"🔍 Querying with {retrieval_strategy.value}: '{args.query}'\n")
+            print(f"Ã°Å¸â€Â Querying with {retrieval_strategy.value}: '{args.query}'\n")
             results = rag_service.query_documents(args.query)
             if results["success"]:
                 # Show direct answer first
                 if results.get("direct_answer"):
-                    print("🎯 DIRECT ANSWER:")
+                    print("Ã°Å¸Å½Â¯ DIRECT ANSWER:")
                     print(f"   {results['direct_answer']}")
                     print("-" * 80)
                 
@@ -2710,7 +3260,7 @@ def main():
                     print(f"\nFound {len(results['documents'])} supporting documents:")
                     print("-" * 80)
                     for i, doc in enumerate(results["documents"], 1):
-                        context_indicator = "🧠" if doc.get("has_context") else "📄"
+                        context_indicator = "Ã°Å¸Â§ " if doc.get("has_context") else "Ã°Å¸â€œâ€ž"
                         print(f"\n{i}. {context_indicator} Source: {doc['source_file']}")
                         print(f"   Similarity: {doc['similarity_score']:.3f}")
                         if doc.get("fusion_score"):
@@ -2724,61 +3274,20 @@ def main():
                 else:
                     print("No supporting documents found.")
             else:
-                print(f"❌ Query failed: {results.get('error', 'Unknown error')}")
+                print(f"Ã¢ÂÅ’ Query failed: {results.get('error', 'Unknown error')}")
         
         if args.cleanup:
-            print(f"\n🧹 Cleaning up old versions, keeping latest {args.cleanup}...")
+            print(f"\nÃ°Å¸Â§Â¹ Cleaning up old versions, keeping latest {args.cleanup}...")
             result = rag_service.cleanup_old_versions(keep_latest_n=args.cleanup)
             if result["success"]:
-                print(f"✅ Cleanup completed!")
+                print(f"Ã¢Å“â€¦ Cleanup completed!")
                 print(f"   Chunks removed: {result['chunks_removed']}")
                 print(f"   Files cleaned: {result['files_cleaned']}")
             else:
-                print(f"❌ Cleanup failed: {result.get('error', 'Unknown error')}")
-        
-
-        if hasattr(args, 'costs') and args.costs:  
-            rag_service = AnthropicContextualRAGService(quiet_mode=True)
-            cost_stats = rag_service.get_rag_cost_statistics()
-            print("\n💰 RAG SERVICE COST STATISTICS")
-            print("=" * 50)
-            print(f"Total API Calls: {cost_stats['total_api_calls']}")
-            print(f"Total Tokens: {cost_stats['total_tokens_used']:,}")
-            print(f"Estimated Cost: ${cost_stats['estimated_total_cost']:.4f}")
-            print("\nCost Breakdown:")
-            for operation, data in cost_stats['cost_breakdown'].items():
-                if data['calls'] > 0:
-                    print(f"  {operation}: {data['calls']} calls, ${data['cost']:.4f}")
-
-        # If no specific action requested, show help
-        # if not any([args.process, args.stats, args.files, args.versions, args.query, args.cleanup, args.check_cache, args.clear_cache]):
-        #     # Show enhanced help for standalone operation
-        #     print("\n📋 RAG Service - Standalone Vector Database Management")
-        #     print("=" * 60)
-        #     print("Available Operations:")
-        #     print("   --process            Process all documents with contextual enhancement")
-        #     print("   --stats              Show processing statistics")
-        #     print("   --files              Show list of processed files")
-        #     print("   --versions           Show version summary")
-        #     print("   --query 'text'       Test query using contextual hybrid search")
-        #     print("   --cleanup N          Remove old versions, keep latest N")
-        #     print("   --check-cache        Check embedding model cache status")
-        #     print("   --clear-cache        Clear embedding model cache")
-        #     print("   --quiet, -q          Suppress initialization output")
-        #     print("   --verbose, -v        Show detailed initialization output")
-        #     print("\nRetrieval Strategies:")
-        #     print("   --retrieval vector_only      Vector similarity only")
-        #     print("   --retrieval bm25_only        Keyword search only") 
-        #     print("   --retrieval hybrid           Vector + BM25")
-        #     print("   --retrieval contextual_hybrid Anthropic's approach (default)")
-        #     print("\nStandalone Examples:")
-        #     print("  python rag_service.py --process --verbose")
-        #     print("  python rag_service.py --query 'loan eligibility' --retrieval contextual_hybrid")
-        #     print("  python rag_service.py --stats")
-        #     print("  python rag_service.py --cleanup 3")
+                print(f"Ã¢ÂÅ’ Cleanup failed: {result.get('error', 'Unknown error')}")
         
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\nÃ¢ÂÅ’ Error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
@@ -2809,3 +3318,4 @@ def create_anthropic_rag_service(
 
 # Backward compatibility alias
 EnhancedRAGService = AnthropicContextualRAGService
+
