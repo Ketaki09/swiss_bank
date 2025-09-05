@@ -192,8 +192,6 @@ class AnthropicContextualRAGService:
             logging.getLogger('sentence_transformers').setLevel(logging.INFO)
             logging.getLogger('chromadb').setLevel(logging.INFO)
 
-
-        
     def _setup_paths(self, documents_directory: Optional[str], chroma_db_path: str):
         """Setup file paths relative to current module"""
         current_file = Path(__file__)
@@ -242,6 +240,62 @@ class AnthropicContextualRAGService:
                 logger.error(f"Ã¢ÂÅ’ Failed to initialize Claude API for RAG service: {e}")
             self.claude_client = None
 
+    def query_documents_universal(self, query: str, top_k: int = 8, 
+                            metadata_filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Universal query method that works with any metadata structure"""
+        
+        # Check if collection is properly initialized
+        if not self.collection:
+            return {
+                "success": False,
+                "error": "ChromaDB collection not initialized",
+                "documents": []
+            }
+        
+        try:
+            if metadata_filters:
+                # Query with filters
+                results = self.collection.query(
+                    query_texts=[query],
+                    n_results=top_k * 2,  # Get more for better filtering
+                    where=metadata_filters,
+                    include=["documents", "metadatas", "distances"]
+                )
+                
+                # If filtered results are insufficient, expand search
+                if not results["documents"] or len(results["documents"][0]) < top_k // 2:
+                    logger.info("Filtered results insufficient, expanding search")
+                    results = self.collection.query(
+                        query_texts=[query],
+                        n_results=top_k,
+                        include=["documents", "metadatas", "distances"]
+                    )
+            else:
+                # Standard contextual hybrid query - use existing method
+                return self._query_contextual_hybrid(query, top_k)
+            
+            # Format and return results
+            results_dict = {
+                "documents": results.get("documents", []),
+                "metadatas": results.get("metadatas", []),
+                "distances": results.get("distances", []),
+                "ids": results.get("ids", [])
+            }
+            
+            formatted_results = self._format_query_results(results_dict, query, "universal_query")
+            
+            # Add AI-powered direct answer extraction
+            if formatted_results.get("success") and formatted_results.get("documents"):
+                direct_answer = self.extract_direct_answer(query, formatted_results["documents"])
+                formatted_results["direct_answer"] = direct_answer
+            
+            return formatted_results
+            
+        except Exception as e:
+            logger.error(f"Universal query failed: {e}")
+            # Fallback to existing contextual hybrid method
+            return self._query_contextual_hybrid(query, top_k)
+    
     def _get_model_cache_path(self) -> Optional[Path]:
         """Get the cache path for the embedding model"""
         try:
@@ -1137,13 +1191,12 @@ class AnthropicContextualRAGService:
                 "chunk_size": chunk_data.get("size", len(original_content)),
                 "optimized_for_context": chunk_data.get("optimized_for_context", False)
             }
-            
+
             # Add project-specific metadata if available
             if "project_metadata" in chunk_data:
                 project_meta = chunk_data["project_metadata"]
                 chunk_metadata.update({
                     "project_name": project_meta.get("project_name"),
-                    "project_number": project_meta.get("project_number"),
                     "project_status": project_meta.get("status"),
                     "product_owner": project_meta.get("product_owner"),
                     "is_project_summary": project_meta.get("is_summary", False),

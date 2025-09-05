@@ -63,7 +63,7 @@ from .rag_service import AnthropicContextualRAGService, RetrievalStrategy
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ===== CORE DATA MODELS =====
+# ===================== CORE DATA MODELS =====================
 
 class IntentType(Enum):
     """Comprehensive banking-specific intent types for professional domain validation"""
@@ -225,7 +225,250 @@ class UserSessionManager:
                              key=lambda x: self.sessions[x].last_activity)
             del self.sessions[oldest_user]
 
-# ===== BANKING DOMAIN GUARDRAILS =====
+# ===================== CONTENT ANALYSER =====================
+
+class FastHeuristicAnalyzer:
+    """Fast content analysis without API calls"""
+    
+    def __init__(self):
+        self.complexity_indicators = {
+            "high_expertise": ["methodology", "framework", "analysis", "assessment", "evaluation"],
+            "technical_depth": ["metrics", "measurement", "calculation", "algorithm", "model"],
+            "broad_scope": ["all", "complete", "comprehensive", "entire", "full", "every"],
+            "specific_inquiry": ["particular", "specific", "exact", "precise", "detailed"]
+        }
+        
+        self.content_quality_signals = {
+            "structured": ["status:", "description:", "objective:", "goal:", "team:"],
+            "detailed": ["implementation", "development", "progress", "timeline", "milestone"],
+            "numerical": r"\d+%|\d+\.\d+|\$\d+|Q[1-4]|\d{4}",
+        }
+    
+    def analyze_content_sufficiency(self, query: str, documents: List[Dict]) -> Dict[str, Any]:
+        """Fast heuristic analysis of content sufficiency"""
+        
+        if not documents:
+            return {
+                "sufficiency_score": 0.0,
+                "recommendation": "external_knowledge",
+                "confidence": 0.9,
+                "reason": "no_internal_data"
+            }
+        
+        total_content_length = sum(len(doc.get("content", "")) for doc in documents)
+        avg_content_length = total_content_length / len(documents)
+        
+        query_complexity = self._analyze_query_complexity(query)
+        content_quality = self._analyze_content_quality(documents)
+        
+        sufficiency_score = self._calculate_sufficiency_score(
+            avg_content_length, query_complexity, content_quality, query
+        )
+        
+        recommendation = self._make_fast_recommendation(
+            sufficiency_score, query_complexity, total_content_length
+        )
+        
+        return {
+            "sufficiency_score": sufficiency_score,
+            "recommendation": recommendation["strategy"],
+            "confidence": recommendation["confidence"],
+            "reason": recommendation["reason"],
+            "metrics": {
+                "content_length": total_content_length,
+                "query_complexity": query_complexity,
+                "content_quality": content_quality
+            }
+        }
+    
+    def _analyze_query_complexity(self, query: str) -> Dict[str, float]:
+        """Analyze query complexity using linguistic patterns"""
+        
+        query_lower = query.lower()
+        word_count = len(query.split())
+        
+        expertise_score = 0.0
+        for category, indicators in self.complexity_indicators.items():
+            matches = sum(1 for indicator in indicators if indicator in query_lower)
+            if matches > 0:
+                if category == "high_expertise":
+                    expertise_score += matches * 0.3
+                elif category == "technical_depth":
+                    expertise_score += matches * 0.4
+        
+        scope_score = 0.0
+        broad_matches = sum(1 for indicator in self.complexity_indicators["broad_scope"] 
+                           if indicator in query_lower)
+        specific_matches = sum(1 for indicator in self.complexity_indicators["specific_inquiry"] 
+                              if indicator in query_lower)
+        
+        if broad_matches > 0:
+            scope_score = 0.8
+        elif specific_matches > 0:
+            scope_score = 0.3
+        else:
+            scope_score = 0.5
+        
+        question_type_score = 0.0
+        if any(word in query_lower for word in ["what are", "list", "which", "all"]):
+            question_type_score = 0.7
+        elif any(word in query_lower for word in ["explain", "how", "why"]):
+            question_type_score = 0.8
+        else:
+            question_type_score = 0.4
+        
+        return {
+            "expertise_required": min(expertise_score, 1.0),
+            "scope_breadth": scope_score,
+            "explanation_depth": question_type_score,
+            "word_count_complexity": min(word_count / 15, 1.0)
+        }
+    
+    def _analyze_content_quality(self, documents: List[Dict]) -> Dict[str, float]:
+        """Analyze content quality using structural patterns"""
+        
+        if not documents:
+            return {"structure_score": 0.0, "detail_score": 0.0, "data_richness": 0.0}
+        
+        total_structure_score = 0.0
+        total_detail_score = 0.0
+        total_data_richness = 0.0
+        
+        for doc in documents:
+            content = doc.get("content", "")
+            
+            structure_matches = sum(1 for pattern in self.content_quality_signals["structured"] 
+                                  if pattern in content.lower())
+            structure_score = min(structure_matches / 3, 1.0)
+            
+            detail_matches = sum(1 for pattern in self.content_quality_signals["detailed"] 
+                               if pattern in content.lower())
+            detail_score = min(detail_matches / 2, 1.0)
+            
+            numerical_matches = len(re.findall(self.content_quality_signals["numerical"], content))
+            data_richness = min(numerical_matches / 3, 1.0)
+            
+            total_structure_score += structure_score
+            total_detail_score += detail_score
+            total_data_richness += data_richness
+        
+        doc_count = len(documents)
+        return {
+            "structure_score": total_structure_score / doc_count,
+            "detail_score": total_detail_score / doc_count,
+            "data_richness": total_data_richness / doc_count
+        }
+    
+    def _calculate_sufficiency_score(self, avg_content_length: float, 
+                                   query_complexity: Dict[str, float], 
+                                   content_quality: Dict[str, float], 
+                                   query: str) -> float:
+        """Calculate content sufficiency score"""
+        
+        length_score = min(avg_content_length / 500, 1.0)
+        
+        quality_score = (
+            content_quality["structure_score"] * 0.4 +
+            content_quality["detail_score"] * 0.4 +
+            content_quality["data_richness"] * 0.2
+        )
+        
+        complexity_penalty = (
+            query_complexity["expertise_required"] * 0.3 +
+            query_complexity["scope_breadth"] * 0.2 +
+            query_complexity["explanation_depth"] * 0.3
+        )
+        
+        business_context_bonus = 0.0
+        query_lower = query.lower()
+        if any(word in query_lower for word in ["our", "company", "current", "project"]):
+            business_context_bonus = 0.1
+        
+        final_score = (length_score * 0.3 + quality_score * 0.5) - (complexity_penalty * 0.4) + business_context_bonus
+        
+        return max(0.0, min(1.0, final_score))
+    
+    def _make_fast_recommendation(self, sufficiency_score: float, 
+                                query_complexity: Dict[str, float], 
+                                total_content_length: int) -> Dict[str, Any]:
+        """Make fast recommendation based on heuristic analysis"""
+        
+        if sufficiency_score >= 0.7:
+            return {
+                "strategy": "internal_primary",
+                "confidence": 0.8,
+                "reason": "sufficient_internal_content"
+            }
+        
+        elif sufficiency_score >= 0.4 and query_complexity["expertise_required"] > 0.6:
+            return {
+                "strategy": "hybrid_enhanced",
+                "confidence": 0.7,
+                "reason": "partial_internal_high_expertise_needed"
+            }
+        
+        elif sufficiency_score >= 0.4:
+            return {
+                "strategy": "internal_enhanced",
+                "confidence": 0.6,
+                "reason": "moderate_internal_content"
+            }
+        
+        elif sufficiency_score >= 0.1 and total_content_length > 100:
+            return {
+                "strategy": "external_with_context",
+                "confidence": 0.7,
+                "reason": "minimal_internal_external_primary"
+            }
+        
+        else:
+            return {
+                "strategy": "external_knowledge",
+                "confidence": 0.8,
+                "reason": "insufficient_internal_data"
+            }
+        
+# ===================== INTELLEGENT CACHER =====================
+class IntelligentCache:
+    """Smart caching system for reducing API calls"""
+    
+    def __init__(self, max_size: int = 200):
+        self.response_cache = {}
+        self.analysis_cache = {}
+        self.max_size = max_size
+        
+    def get_cached_response(self, query: str, content_hash: str) -> Optional[str]:
+        """Get cached response if available"""
+        cache_key = f"{hash(query.lower())}_{content_hash}"
+        
+        if cache_key in self.response_cache:
+            cached_response, timestamp = self.response_cache[cache_key]
+            if time.time() - timestamp < 1800:
+                return cached_response
+        
+        return None
+    
+    def cache_response(self, query: str, content_hash: str, response: str):
+        """Cache response for future use"""
+        cache_key = f"{hash(query.lower())}_{content_hash}"
+        self.response_cache[cache_key] = (response, time.time())
+        
+        if len(self.response_cache) > self.max_size:
+            oldest_key = min(self.response_cache.keys(), 
+                           key=lambda k: self.response_cache[k][1])
+            del self.response_cache[oldest_key]
+    
+    def get_content_hash(self, documents: List[Dict]) -> str:
+        """Generate hash for document content"""
+        content_summary = ""
+        for doc in documents[:5]:
+            content = doc.get("content", "")[:200]
+            content_summary += content
+        
+        return hashlib.md5(content_summary.encode()).hexdigest()[:12]
+   
+
+# ===================== BANKING DOMAIN GUARDRAILS =====================
 
 class BankingDomainGuardrails:
     """Ultra-fast banking domain validation system with 95-98% accuracy"""
@@ -859,7 +1102,7 @@ Focus on banking, financial services, fintech, compliance, risk management, trea
                 
         return "banking information"
     
-# ===== ENHANCED CONVERSATION MEMORY SYSTEM =====
+# ===================== ENHANCED CONVERSATION MEMORY SYSTEM =====================
 class EnhancedConversationMemory:
     """Advanced conversation memory with topic and entity tracking"""
     
@@ -1750,7 +1993,7 @@ class UnifiedEntityExtractor:
         
         return []
 
-# ===== OPTIMIZED INTENT CLASSIFICATION SYSTEM =====
+# ===================== OPTIMIZED INTENT CLASSIFICATION SYSTEM =====================
 class OptimizedIntentClassifier:
     """Ultra-fast intent classification with comprehensive banking domain validation"""
     
@@ -2405,7 +2648,7 @@ class OptimizedIntentClassifier:
         else:
             self.conversation_memory.reset_from_message_id(message_id)
     
-# ===== ENHANCED DOCUMENT RETRIEVAL SYSTEM =====
+# ===================== ENHANCED DOCUMENT RETRIEVAL SYSTEM =====================
 
 class OptimizedRAGSystem:
     """Enhanced multi-pass RAG system with parallel processing"""
@@ -2421,10 +2664,10 @@ class OptimizedRAGSystem:
         self._connect_to_rag_service()
     
     def _connect_to_rag_service(self):
-        """Connect to existing RAG service"""         
+        """Connect to existing RAG service with better error handling"""         
         try:
             if AnthropicContextualRAGService is not None:
-                # Create without retrieval_strategy parameter to avoid type error
+                # Create with proper initialization
                 self.rag_service = AnthropicContextualRAGService(
                     chroma_db_path=self.chroma_db_path,
                     documents_directory=None,
@@ -2432,10 +2675,20 @@ class OptimizedRAGSystem:
                     embedding_model="infgrad/stella_en_1.5B_v5",
                     quiet_mode=True
                 )
-                logger.info("RAG service connected successfully")
+                
+                # Verify the service is properly initialized
+                if (hasattr(self.rag_service, 'collection') and 
+                    self.rag_service.collection is not None and
+                    hasattr(self.rag_service, 'embedding_model') and
+                    self.rag_service.embedding_model is not None):
+                    logger.info("RAG service connected and verified successfully")
+                else:
+                    logger.error("RAG service initialized but components are missing")
+                    self.rag_service = None
             else:
                 logger.warning("AnthropicContextualRAGService not available")
                 self.rag_service = None
+                
         except Exception as e:
             logger.error(f"RAG service connection failed: {e}")
             self.rag_service = None
@@ -2623,13 +2876,15 @@ class OptimizedRAGSystem:
             "strategy": "fallback"
         }
 
-# ===== DYNAMIC RESPONSE GENERATION SYSTEM =====
+# ===================== DYNAMIC RESPONSE GENERATION SYSTEM =====================
 
 class OptimizedResponseGenerator:
     """Dynamic response generation with context awareness"""
     
-    def __init__(self, claude_client: Optional[Any] = None):
+    def __init__(self, claude_client):
         self.claude_client = claude_client
+        if not self.claude_client:
+            logger.warning("Claude client not initialized - responses will be limited")
         self.response_cache = {}
         
         # SIMPLIFIED: Only essential templates
@@ -2788,10 +3043,16 @@ class OptimizedResponseGenerator:
             return self._generate_styled_general_response(query)
         
     def _has_sufficient_content(self, documents: List[Dict], query: str) -> bool:
-        """Check if database has sufficient content to answer the query"""
+        if not documents:
+            return False
+        
         total_content_length = sum(len(doc.get("content", "")) for doc in documents)
-        return total_content_length > 500  # Sufficient content threshold
-
+        # Enhanced evaluation for AI-driven queries
+        if len(documents) >= 3 and total_content_length > 300:
+            return True  # Multiple relevant docs = sufficient
+    
+        return total_content_length > 500
+    
     def _has_minimal_content(self, documents: List[Dict], query: str) -> bool:
         """Check if database has minimal but relevant content"""
         total_content_length = sum(len(doc.get("content", "")) for doc in documents)
@@ -3155,7 +3416,438 @@ class OptimizedResponseGenerator:
         
         return "\n\n".join(response_parts) if response_parts else "No relevant information found."
 
-# ===== MAIN OPTIMIZED SWISS AGENT =====
+
+# ===================== RESPONSE + CANVAS DESIGNER =====================
+class OptimizedCanvasResponseGenerator(OptimizedResponseGenerator):
+    """Optimized response generator with canvas styling"""
+    
+    def __init__(self, claude_client):
+        super().__init__(claude_client)
+        self.heuristic_analyzer = FastHeuristicAnalyzer()
+        self.intelligent_cache = IntelligentCache()
+    
+    async def generate_optimized_response(self, query: str, documents: List[Dict], 
+                                        conversation_context: Optional[List] = None) -> Tuple[str, int]:
+        """Enterprise-grade response generation with semantic awareness"""
+        
+        content_hash = self.intelligent_cache.get_content_hash(documents)
+        cached_response = self.intelligent_cache.get_cached_response(query, content_hash)
+        
+        if cached_response:
+            return cached_response, 0
+        
+        # Determine strategy
+        response_strategy = self._determine_response_strategy(query, documents)
+        
+        # Call parent class method directly
+        retrieval_result = {"documents": documents, "success": True}
+        
+        if response_strategy["type"] == "comprehensive":
+            response_text = super()._generate_styled_database_response(query, retrieval_result, conversation_context)
+        else:
+            response_text = super()._generate_styled_database_response(query, retrieval_result, conversation_context)
+        
+        # Apply child class styling
+        self.intelligent_cache.cache_response(query, content_hash, response_text)
+        
+        return response_text, 1
+
+    def _determine_response_strategy(self, query: str, documents: List[Dict]) -> Dict[str, Any]:
+        """Determine response strategy based on semantic analysis"""
+        
+        if not self.claude_client:
+            return {"type": "standard", "token_limit": 2500}
+        
+        prompt = f"""Determine optimal response strategy for this query:
+
+    Query: "{query}"
+    Available documents: {len(documents)}
+
+    Analyze:
+    1. Response type needed: comprehensive_list | analytical_summary | specific_answer
+    2. Required token allocation: 2000-5000
+    3. Information completeness needed: complete | selective | focused
+
+    JSON response:
+    {{"type": "comprehensive|analytical|standard", "token_limit": 2000-5000, "approach": "description"}}"""
+
+        try:
+            response = self.claude_client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=200,
+                temperature=0.1,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            response_text = "".join([block.text for block in response.content if hasattr(block, 'text')])
+            
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1
+            if json_start >= 0 and json_end > json_start:
+                strategy = json.loads(response_text[json_start:json_end])
+                return {
+                    "type": strategy.get("type", "standard"),
+                    "token_limit": min(5000, max(2000, strategy.get("token_limit", 3000))),
+                    "approach": strategy.get("approach", "standard response")
+                }
+        
+        except Exception as e:
+            logger.warning(f"Response strategy analysis failed: {e}")
+        
+        return {"type": "standard", "token_limit": 3000}
+
+    def _prepare_comprehensive_documents(self, documents: List[Dict], max_docs: int = 15) -> str:
+        """Prepare comprehensive document content for AI processing"""
+        content_blocks = []
+        
+        for i, doc in enumerate(documents[:max_docs], 1):
+            content = doc.get("content", "")
+            source = doc.get("source_file", "Unknown")
+            metadata = doc.get("metadata", {})
+            
+            doc_info = f"Document {i} - Source: {source}"
+            if metadata.get("title"):
+                doc_info += f" | Title: {metadata['title']}"
+            if metadata.get("status"):
+                doc_info += f" | Status: {metadata['status']}"
+            
+            doc_info += f"\nContent: {content[:800]}"
+            content_blocks.append(doc_info)
+        
+        return "\n\n---\n\n".join(content_blocks)
+
+    def _format_documents_fallback(self, documents: List[Dict]) -> str:
+        """Fallback formatting when AI is unavailable"""
+        if not documents:
+            return "No relevant information found."
+        
+        response_parts = ["## Information from Internal Database\n"]
+        
+        for i, doc in enumerate(documents[:5], 1):
+            content = doc.get("content", "").strip()
+            source = doc.get("source_file", "Internal Document")
+            
+            if content:
+                if len(content) > 300:
+                    content = content[:300] + "..."
+                response_parts.append(f"### {i}. From {source}\n{content}\n")
+        
+        return "\n".join(response_parts)
+
+    async def _generate_comprehensive_response(self, query: str, documents: List[Dict], strategy: Dict) -> str:
+        """Generate comprehensive response for list/exhaustive queries"""
+        
+        combined_content = self._prepare_comprehensive_documents(documents, max_docs=15)
+    
+        prompt = f"""Answer this query comprehensively: "{query}"
+
+    Documents: {combined_content}
+
+    STRICT REQUIREMENTS:
+    1. Use clean markdown structure
+    2. Include for each project: Name, Status, Description, Business Objective, Key Features, Value Proposition
+    3. Show ALL projects that match the criteria
+    4. Use approaite emoji per heading or sub-heading if needed based on the local and gloabl context
+    5. No redundant headings or numbering issues
+    6. If there's only one heading or sub-heading in that case no need numbering
+
+    Format:
+    # 📊 [Direct Answer to Query]
+
+    ## ✅ Project Name
+    - **Status:** [Status]
+    - **Description:** [Full description]
+    - **Business Objective:** [Objective]
+    - **Key Features:** [Features]
+    - **Value Proposition:** [Benefits]
+
+    Response:"""
+
+        try:
+            response = self.claude_client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=5000,  
+                temperature=0.1,  
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            return "".join([block.text for block in response.content if hasattr(block, 'text')])
+            
+        except Exception as e:
+            logger.warning(f"Comprehensive response generation failed: {e}")
+            return self._format_documents_fallback(documents)
+    
+    async def _fast_path_processing(self, query: str, documents: List[Dict], 
+                                  heuristic_analysis: Dict[str, Any]) -> Tuple[str, int]:
+        """Fast processing path - maximum 1 API call"""
+        
+        strategy = heuristic_analysis["recommendation"]
+        
+        if strategy == "internal_primary":
+            response = self._format_internal_response(query, documents)
+            return response, 0
+            
+        elif strategy == "external_knowledge":
+            response = await self._generate_simple_external_response(query)
+            return response, 1
+            
+        else:
+            response = await self._generate_simple_hybrid_response(query, documents)
+            return response, 1
+    
+    async def _balanced_path_processing(self, query: str, documents: List[Dict], 
+                                      heuristic_analysis: Dict[str, Any]) -> Tuple[str, int]:
+        """Balanced processing path - maximum 2 API calls"""
+        
+        strategy = heuristic_analysis["recommendation"]
+        
+        if strategy in ["hybrid_enhanced", "external_with_context"]:
+            response = await self._generate_batched_response(query, documents, strategy)
+            return response, 1
+        else:
+            response = await self._generate_standard_response(query, documents, strategy)
+            return response, 1
+    
+    async def _comprehensive_path_processing(self, query: str, documents: List[Dict], 
+                                           heuristic_analysis: Dict[str, Any]) -> Tuple[str, int]:
+        """Comprehensive processing path - maximum 2 API calls"""
+        
+        enhanced_analysis = await self._get_enhanced_analysis(query, heuristic_analysis)
+        response = await self._generate_enhanced_response(query, documents, enhanced_analysis)
+        
+        return response, 2
+    
+    async def _generate_simple_external_response(self, query: str) -> str:
+        """Generate simple external knowledge response"""
+        
+        prompt = f"""Provide a helpful, professional response to: "{query}"
+
+Use your knowledge to give a comprehensive answer. Structure with clear headers and be practical."""
+
+        try:
+            response = self.claude_client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=2000,
+                temperature=0.2,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            response_text = "".join([
+                block.text for block in response.content 
+                if hasattr(block, 'text')
+            ])
+            
+            return response_text + "\n\n**Note:** Response based on general knowledge"
+            
+        except Exception as e:
+            return "I can help with this topic. Could you provide more specific details?"
+    
+    async def _generate_simple_hybrid_response(self, query: str, documents: List[Dict]) -> str:
+        """Generate simple hybrid response"""
+        
+        internal_summary = ""
+        if documents:
+            for doc in documents[:2]:
+                content = doc.get("content", "")[:150]
+                if content:
+                    internal_summary += f"{content}... "
+        
+        prompt = f"""Answer this query using both available internal context and general knowledge: "{query}"
+
+Internal context: {internal_summary if internal_summary else "Limited internal information"}
+
+Provide a helpful response that combines relevant internal information with broader knowledge where needed. Be concise but comprehensive."""
+
+        try:
+            response = self.claude_client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=1500,
+                temperature=0.2,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            response_text = "".join([
+                block.text for block in response.content 
+                if hasattr(block, 'text')
+            ])
+            
+            return response_text
+            
+        except Exception as e:
+            return self._format_internal_response(query, documents)
+    
+    async def _generate_batched_response(self, query: str, documents: List[Dict], 
+                                       strategy: str) -> str:
+        """Generate response with batched analysis"""
+        
+        internal_content = self._prepare_internal_content(documents)
+        
+        prompt = f"""Analyze and respond to this query comprehensively: "{query}"
+
+Strategy: {strategy}
+Available internal information: {internal_content[:800] if internal_content else "None"}
+
+Tasks:
+1. Analyze if internal information is sufficient for this query
+2. Determine optimal response approach
+3. Generate appropriate response based on analysis
+
+Provide a well-structured, helpful response that gives maximum value to the user."""
+
+        try:
+            response = self.claude_client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=2500,
+                temperature=0.2,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            response_text = "".join([
+                block.text for block in response.content 
+                if hasattr(block, 'text')
+            ])
+            
+            return response_text
+            
+        except Exception as e:
+            return self._format_internal_response(query, documents)
+    
+    async def _generate_standard_response(self, query: str, documents: List[Dict], 
+                                        strategy: str) -> str:
+        """Generate standard response based on strategy"""
+        
+        if strategy == "internal_primary":
+            return self._format_internal_response(query, documents)
+        elif strategy == "external_knowledge":
+            return await self._generate_simple_external_response(query)
+        else:
+            return await self._generate_simple_hybrid_response(query, documents)
+    
+    async def _get_enhanced_analysis(self, query: str, 
+                                   heuristic_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """Get enhanced analysis for complex queries"""
+        
+        prompt = f"""Analyze this complex query for optimal response strategy: "{query}"
+
+Heuristic analysis shows:
+- Sufficiency score: {heuristic_analysis["sufficiency_score"]:.2f}
+- Initial recommendation: {heuristic_analysis["recommendation"]}
+- Confidence: {heuristic_analysis["confidence"]:.2f}
+
+Provide enhanced analysis:
+1. What type of information does this query really need?
+2. What would be most valuable to the user?
+3. Optimal response strategy?
+
+Return JSON: {{"analysis": "...", "strategy": "...", "reasoning": "..."}}"""
+
+        try:
+            response = self.claude_client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=300,
+                temperature=0.1,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            response_text = "".join([
+                block.text for block in response.content 
+                if hasattr(block, 'text')
+            ])
+            
+            if '{' in response_text and '}' in response_text:
+                start = response_text.find('{')
+                end = response_text.rfind('}') + 1
+                analysis_json = response_text[start:end]
+                return json.loads(analysis_json)
+            
+        except Exception as e:
+            logger.warning(f"Enhanced analysis failed: {e}")
+        
+        return {
+            "analysis": "Complex query requiring balanced approach",
+            "strategy": heuristic_analysis["recommendation"],
+            "reasoning": "Fallback to heuristic recommendation"
+        }
+    
+    async def _generate_enhanced_response(self, query: str, documents: List[Dict], 
+                                        enhanced_analysis: Dict[str, Any]) -> str:
+        """Generate response with enhanced understanding"""
+        
+        strategy = enhanced_analysis.get("strategy", "hybrid")
+        reasoning = enhanced_analysis.get("reasoning", "")
+        internal_content = self._prepare_internal_content(documents)
+        
+        prompt = f"""Generate optimal response to: "{query}"
+
+Strategy: {strategy}
+Reasoning: {reasoning}
+Internal content: {internal_content[:600] if internal_content else "None"}
+
+Create a response that provides maximum value based on the strategy and reasoning."""
+
+        try:
+            response = self.claude_client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=2500,
+                temperature=0.2,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            response_text = "".join([
+                block.text for block in response.content 
+                if hasattr(block, 'text')
+            ])
+            
+            return response_text
+            
+        except Exception as e:
+            return self._format_internal_response(query, documents)
+    
+    def _format_internal_response(self, query: str, documents: List[Dict]) -> str:
+        """Format response using internal documents only"""
+        
+        if not documents:
+            return "I don't have specific information about this in our internal database. Please contact the relevant department for details."
+        
+        response_parts = ["## Information from Internal Database\n"]
+        
+        for i, doc in enumerate(documents[:3], 1):
+            content = doc.get("content", "").strip()
+            source = doc.get("source_file", "Internal Document")
+            
+            if content:
+                if len(content) > 300:
+                    content = content[:300] + "..."
+                
+                if len(documents) > 1:
+                    response_parts.append(f"### {i}. From {source}\n{content}\n")
+                else:
+                    response_parts.append(f"### From {source}\n{content}\n")
+        
+        if len(documents) > 3:
+            response_parts.append(f"\n*Note: {len(documents) - 3} additional documents available*")
+        
+        return "\n".join(response_parts)
+    
+    def _prepare_internal_content(self, documents: List[Dict]) -> str:
+        """Prepare internal content for API calls"""
+        
+        if not documents:
+            return ""
+        
+        content_blocks = []
+        for i, doc in enumerate(documents[:4], 1):
+            content = doc.get("content", "")
+            source = doc.get("source_file", "Unknown")
+            
+            if content:
+                if len(content) > 400:
+                    content = content[:400] + "..."
+                content_blocks.append(f"Doc {i} ({source}): {content}")
+        
+        return "\n\n".join(content_blocks)
+    
+# ===================== MAIN OPTIMIZED SWISS AGENT =====================
 
 class OptimizedSwissAgent:
     """Ultra-fast Swiss Agent with sub-2-second response times and comprehensive banking domain coverage"""
@@ -3181,7 +3873,7 @@ class OptimizedSwissAgent:
         )
 
         self.rag_system = OptimizedRAGSystem(chroma_db_path)
-        self.response_generator = OptimizedResponseGenerator(claude_client)
+        self.response_generator = OptimizedCanvasResponseGenerator(claude_client)
         
         # Performance tracking
         self.performance_metrics = {
@@ -3221,8 +3913,8 @@ class OptimizedSwissAgent:
             
             # Step 5: Enhanced response generation
             conversation_context = self.intent_classifier.conversation_memory.get_context_window()
-            response_text = self.response_generator.generate_response(
-                query, intent_result, retrieval_result, conversation_context
+            response_text, api_calls_used = await self.response_generator.generate_optimized_response(
+                query, retrieval_result.get("documents", []), conversation_context
             )
             
             # Step 6: Add response to memory
@@ -3246,47 +3938,260 @@ class OptimizedSwissAgent:
             )
 
     def _get_comprehensive_documents(self, query: str, intent_result: IntentClassificationResult) -> Dict[str, Any]:
-        """Enhanced document retrieval with project-aware processing"""
-        logger.info(f"RAG service available: {hasattr(self.rag_system, 'rag_service') and self.rag_system.rag_service is not None}")
+        """Universal semantic-driven document retrieval compatible with 3-option response system"""
         
-        query_words = len(query.split())
-        semantic_instruction = getattr(intent_result, 'semantic_instruction', None)
+        if not (hasattr(self.rag_system, 'rag_service') and self.rag_system.rag_service is not None):
+            return {"success": False, "documents": [], "error": "RAG service unavailable"}
         
-        # Determine retrieval scope
-        if semantic_instruction and "FILTER" in semantic_instruction:
-            top_k = 15
-        elif query_words <= 5:
-            top_k = 12
-        else:
-            top_k = 8
-        
-        # Enhanced query for better retrieval
-        enhanced_query = self._enhance_query_for_semantic_search(query)
-        
-        # Check if RAG service is available and properly initialized
-        if (hasattr(self.rag_system, 'rag_service') and 
-            self.rag_system.rag_service is not None):
+        try:
+            # AI-driven query analysis with ChromaDB format compliance
+            query_analysis = self._analyze_query_with_ai(query)
             
-            # DIRECT CALL - no complicated logic
+            enhanced_query = query_analysis.get("enhanced_query", query)
+            top_k = query_analysis.get("suggested_results", 15)
+            metadata_filter = query_analysis.get("metadata_filter")
+            query_type = query_analysis.get("query_type", "domain_general")
+            
+            # Apply metadata filtering only for project-specific queries
+            if metadata_filter and query_type == "project_specific":
+                try:
+                    field = list(metadata_filter.keys())[0]
+                    value_obj = metadata_filter[field]
+                    
+                    # Extract actual value from $eq format or use direct value
+                    if isinstance(value_obj, dict) and "$eq" in value_obj:
+                        value = value_obj["$eq"]
+                    else:
+                        value = value_obj
+                    field_mapping = {
+                        "status": "project_status",  
+                        "project_status": "project_status"
+                    }
+                    actual_field = field_mapping.get(field, field)
+                    chromadb_filter = {actual_field: value}
+                    
+                    retrieval_result = self.rag_system.rag_service.collection.query(
+                        query_texts=[enhanced_query],
+                        n_results=top_k,
+                        where=chromadb_filter,
+                        include=["documents", "metadatas", "distances"]
+                    )
+                    
+                    formatted_result = self.rag_system.rag_service._format_query_results(
+                        {
+                            "documents": retrieval_result.get("documents", []),
+                            "metadatas": retrieval_result.get("metadatas", []),
+                            "distances": retrieval_result.get("distances", []),
+                            "ids": retrieval_result.get("ids", [])
+                        },
+                        enhanced_query,
+                        "ai_filtered"
+                    )
+                    
+                    # Validate filtered results quality
+                    documents_found = len(formatted_result.get("documents", []))
+                    min_expected = max(3, top_k // 4)  # Expect at least 25% of requested docs
+                    
+                    if documents_found >= min_expected:
+                        logger.info(f"AI-filtered query successful: {documents_found} documents found")
+                        formatted_result["method"] = "ai_semantic_filtered"
+                        formatted_result["query_analysis"] = query_analysis
+                        return formatted_result
+                    else:
+                        logger.info(f"AI-filtered results insufficient ({documents_found} < {min_expected}), expanding search")
+                        # Fall through to unfiltered search
+                        
+                except Exception as filter_error:
+                    logger.warning(f"AI-filtered query failed: {filter_error}")
+                    # Fall through to unfiltered search
+            
+            # Unfiltered search with enhanced query
             try:
                 retrieval_result = self.rag_system.rag_service.query_documents(
-                    query, top_k=top_k  # Use original query, not enhanced
+                    enhanced_query, 
+                    top_k=top_k,
+                    retrieval_strategy=RetrievalStrategy.CONTEXTUAL_HYBRID
                 )
-                retrieval_result["method"] = "direct_rag"
-                logger.info(f"RAG retrieved {len(retrieval_result.get('documents', []))} documents")
-                return retrieval_result
-            except Exception as e:
-                logger.error(f"RAG query failed: {e}")
+                
+                if retrieval_result.get("success") and retrieval_result.get("documents"):
+                    retrieval_result["method"] = "ai_semantic_enhanced"
+                    retrieval_result["query_analysis"] = query_analysis
+                    logger.info(f"AI-enhanced query successful: {len(retrieval_result.get('documents', []))} documents")
+                    return retrieval_result
+                    
+            except Exception as enhanced_error:
+                logger.warning(f"Enhanced query failed: {enhanced_error}")
+            
+            # Final fallback: original query with standard retrieval
+            try:
+                fallback_result = self.rag_system.rag_service.query_documents(
+                    query, 
+                    top_k=top_k
+                )
+                
+                fallback_result["method"] = "fallback_original"
+                fallback_result["query_analysis"] = {"enhanced_query": query, "fallback_used": True}
+                logger.info(f"Fallback query used: {len(fallback_result.get('documents', []))} documents")
+                return fallback_result
+                
+            except Exception as fallback_error:
+                logger.error(f"All query methods failed: {fallback_error}")
+                return {
+                    "success": False, 
+                    "documents": [], 
+                    "error": f"Query execution failed: {fallback_error}",
+                    "method": "complete_failure"
+                }
+                
+        except Exception as e:
+            logger.error(f"AI-driven retrieval failed: {e}")
+            # Emergency fallback
+            try:
+                emergency_result = self.rag_system.rag_service.query_documents(query, top_k=15)
+                emergency_result["method"] = "emergency_fallback"
+                return emergency_result
+            except:
+                return {
+                    "success": False, 
+                    "documents": [], 
+                    "error": f"Complete retrieval failure: {e}",
+                    "method": "total_failure"
+                }
+    
+    def _analyze_query_with_ai(self, query: str) -> Dict[str, Any]:
+        """Universal semantic query analysis compatible with all 3 response modes"""
         
-        # Final fallback - return empty result
-        logger.error("All document retrieval methods failed or RAG service not initialized")
-        return {
-            "success": False,
-            "documents": [],
-            "error": "RAG service not available or not properly initialized",
-            "method": "fallback_empty"
-        }
+        if not self.claude_client:
+            return {"enhanced_query": query, "suggested_results": 15, "metadata_filter": None}
+        
+        prompt = f"""Analyze this fintech/banking query for vector database retrieval:
 
+    Query: "{query}"
+
+    VECTOR DATABASE CONSTRAINTS:
+    - enhanced_query: Must be single string (not array) for ChromaDB
+    - metadata_filter: Use {{"field": {{"$eq": "value"}}}} format or null
+    - Available fields: status, project_status, project_name, source_file, title
+
+    QUERY CLASSIFICATION:
+    1. PROJECT-SPECIFIC: Queries about specific projects/initiatives → use metadata filtering
+    2. DOMAIN-GENERAL: Queries about fintech concepts/regulations → no filtering needed  
+    3. TECHNICAL: Queries about systems/processes → no filtering needed
+
+    METADATA FILTERING RULES:
+    - Use ONLY for explicit project status queries ("completed projects", "halted initiatives")
+    - Status values: "completed", "in progress", "halted"
+    - Do NOT filter for concept queries ("what is KYC", "explain blockchain")
+
+    JSON Response:
+    {{
+    "enhanced_query": "single string with relevant business terms",
+    "document_count": 8-25,
+    "metadata_filter": {{"status": {{"$eq": "completed"}}}} or null,
+    "scope": "comprehensive_list|specific_item|analysis",
+    "query_type": "project_specific|domain_general|technical"
+    }}
+
+    CRITICAL: Keep enhanced_query as single string, apply metadata_filter sparingly."""
+
+        try:
+            response = self.claude_client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=350,
+                temperature=0.1,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            response_text = "".join([block.text for block in response.content if hasattr(block, 'text')])
+            
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1
+            if json_start >= 0 and json_end > json_start:
+                analysis = json.loads(response_text[json_start:json_end])
+                
+                # Ensure string format and validate
+                enhanced_query = analysis.get("enhanced_query", query)
+                if not isinstance(enhanced_query, str):
+                    enhanced_query = query
+                
+                # Only apply metadata filter for project-specific queries
+                metadata_filter = analysis.get("metadata_filter")
+                query_type = analysis.get("query_type", "domain_general")
+                
+                if query_type != "project_specific":
+                    metadata_filter = None  # Force no filtering for non-project queries
+                
+                return {
+                    "enhanced_query": enhanced_query,
+                    "suggested_results": min(25, max(8, analysis.get("document_count", 15))),
+                    "metadata_filter": metadata_filter,
+                    "scope": analysis.get("scope", "specific_item"),
+                    "query_type": query_type
+                }
+        
+        except Exception as e:
+            logger.warning(f"Semantic analysis failed: {e}")
+        
+        return {"enhanced_query": query, "suggested_results": 15, "metadata_filter": None}
+    
+    def _fallback_query_analysis(self, query: str) -> Dict[str, Any]:
+        """Intelligent fallback when AI analysis fails"""
+        query_lower = query.lower()
+        word_count = len(query.split())
+        
+        # Determine result count based on query structure
+        if any(word in query_lower for word in ["all", "list", "what", "which"]):
+            suggested_results = 15
+        elif word_count <= 5:
+            suggested_results = 12
+        else:
+            suggested_results = 8
+        
+        return {
+            "enhanced_query": query,
+            "suggested_results": suggested_results,
+            "metadata_filters": {},
+            "query_type": "general",
+            "reasoning": "fallback analysis"
+        }
+    
+    def _manual_format_results(self, results: Dict[str, Any], query: str) -> Dict[str, Any]:
+        """Manual result formatting when RAG service method is unavailable"""
+        
+        try:
+            documents = results.get("documents", [[]])[0] if results.get("documents") else []
+            metadatas = results.get("metadatas", [[]])[0] if results.get("metadatas") else []
+            distances = results.get("distances", [[]])[0] if results.get("distances") else []
+            
+            formatted_results = []
+            min_length = min(len(documents), len(metadatas), len(distances))
+            
+            for i in range(min_length):
+                distance = distances[i] if i < len(distances) else 1.0
+                similarity_score = max(0, 1 - min(distance, 1.0))
+                metadata = metadatas[i] if i < len(metadatas) else {}
+                
+                formatted_results.append({
+                    "content": documents[i],
+                    "metadata": metadata,
+                    "similarity_score": similarity_score,
+                    "source_file": metadata.get("source_file", "Unknown"),
+                    "title": metadata.get("title"),
+                    "status": metadata.get("status")
+                })
+            
+            return {
+                "success": True,
+                "query": query,
+                "documents": formatted_results,
+                "total_results": len(formatted_results),
+                "method": "manual_formatting"
+            }
+            
+        except Exception as e:
+            logger.error(f"Manual formatting failed: {e}")
+            return {"success": False, "error": str(e), "documents": []}
+        
     def _enhance_query_for_semantic_search(self, query: str) -> str:
         """Enhance query for better semantic retrieval without changing intent"""
         
@@ -3465,8 +4370,8 @@ class OptimizedSwissAgent:
         
         return query
     
-    def _generate_response_fast(self, query: str, intent_result: IntentClassificationResult,
-                           retrieval_result: Dict[str, Any]) -> str:
+    async def _generate_response_fast(self, query: str, intent_result: IntentClassificationResult,
+                                 retrieval_result: Dict[str, Any]) -> str:
         """CORRECTED: Better response generation for follow-up questions"""
         
         if not retrieval_result.get("success") or not retrieval_result.get("documents"):
@@ -3480,9 +4385,10 @@ class OptimizedSwissAgent:
         
         # For other queries, use existing response generator
         conversation_context = self.intent_classifier.conversation_memory.get_context_window()
-        return self.response_generator.generate_response(
-            query, intent_result, retrieval_result, conversation_context
+        response_text, api_calls = await self.response_generator.generate_optimized_response(
+            query, retrieval_result.get("documents", []), conversation_context
         )
+        return response_text
 
     
     def _generate_focused_followup_response(self, query: str, documents: List[Dict]) -> str:
@@ -3914,6 +4820,19 @@ class OptimizedSwissAgent:
         except Exception as e:
             logger.error(f"Failed to clear conversation memory: {e}")
     
+    def get_optimization_stats(self) -> Dict[str, Any]:
+        """Get optimization performance statistics"""
+        total_queries = self.performance_metrics["total_queries"]
+        if total_queries == 0:
+            return self.performance_metrics
+        
+        cache_hit_rate = (self.performance_metrics["cache_hits"] / total_queries) * 100
+        
+        return {
+            **self.performance_metrics,
+            "cache_hit_rate_percent": round(cache_hit_rate, 1),
+            "optimization_enabled": True
+        }
     def _rate_limited_api_call(self, api_call_func, operation_type="general", *args, **kwargs):
         """API rate limiting for agent operations"""
         with self.api_call_lock:
@@ -4065,7 +4984,7 @@ class OptimizedSwissAgent:
         return resolved_query
         
 
-# ===== PERFORMANCE TESTING & BENCHMARKS =====
+# ===================== PERFORMANCE TESTING & BENCHMARKS =====================
 
 class PerformanceBenchmark:
     """Performance testing and validation for Swiss Agent"""
@@ -4197,7 +5116,7 @@ class PerformanceBenchmark:
         # All other queries should be <2.0s
         return processing_time < 2.0
 
-# ===== FACTORY FUNCTIONS =====
+# ===================== FACTORY FUNCTIONS =====================
 
 def create_optimized_swiss_agent(claude_client: Optional[Any] = None, 
                                 chroma_db_path: str = "./chroma_db", 

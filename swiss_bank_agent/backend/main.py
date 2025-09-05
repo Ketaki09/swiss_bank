@@ -2755,8 +2755,8 @@ async def diagnose_response_generation(
         # Step 4: Response generation (with timing)
         response_start = time.time()
         conversation_context = swiss_agent.intent_classifier.conversation_memory.get_context_window()
-        response_text = swiss_agent.response_generator.generate_response(
-            query, intent_result, retrieval_result, conversation_context
+        response_text, api_calls_used = await swiss_agent.response_generator.generate_optimized_response(
+            query, retrieval_result.get("documents", []), conversation_context
         )
         response_time = (time.time() - response_start) * 1000
         
